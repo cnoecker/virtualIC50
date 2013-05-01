@@ -18,7 +18,9 @@ skcm <- build.tcga.ds(geneExprId="~/projects/h3/data~/firehose/gdac.broadinstitu
                       gisticId="syn1687618",
                       rppaId="~/projects/h3/data~/firehose/gdac.broadinstitute.org_SKCM.RPPA_AnnotateWithGene.Level_3.2013032600.0.0/SKCM.rppa.txt",
                       cbioPrefix="skcm",isRNASeq=TRUE)
+blca <- build.tcga.ds(geneExprId="syn417761",rppaId="syn1681031",gisticId="syn1687592",cbioPrefix="syn1571577",isRNASeq=TRUE)
 
+# merge rectal and colon
 idxs1 <- groupMatch(rownames(coad$geneExpr), rownames(read$geneExpr))
 idxs2 <- groupMatch(rownames(coad$rppa), rownames(read$rppa))
 idxs3 <- groupMatch(rownames(coad$gistic), rownames(read$gistic))

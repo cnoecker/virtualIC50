@@ -5,6 +5,7 @@ library(glmnet)
 library(parallel)
 library(ROCR)
 library(impute)
+library(LogicReg)
 
 
 is.tumor <- function(x){
@@ -132,11 +133,11 @@ find_drug_features <- function(drugvec,tcga.dat, with.rppa=FALSE,beta_threshold=
   
   #####
   type <- match.arg(gene.dict)
-  switch(type){
-    vogelstein = (driver.genes <- read.table("resources/vogelstein_driver_genes.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1])
-    cosmic = (driver.genes <- read.table("resources/cancer_gene_census.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1])
-    cbio = (driver.genes <- read.table("resources/cbio_cancer_genes.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1])
-  }
+  switch(type,
+    vogelstein = (driver.genes <- read.table("resources/vogelstein_driver_genes.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]),
+    cosmic = (driver.genes <- read.table("resources/cancer_gene_census.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]),
+    cbio = (driver.genes <- read.table("./resources/cbio_cancer_genes.txt",sep="\t",header=T,as.is=T,quote="")$Gene.Symbol)
+  )
   
   if(with.rppa){
     idxs <- groupMatch(names(drugvec), colnames(tcga.dat$mut), colnames(tcga.dat$gistic), colnames(tcga.dat$rppa))
@@ -240,7 +241,7 @@ find_drug_features <- function(drugvec,tcga.dat, with.rppa=FALSE,beta_threshold=
                     noEvents=abberationCount,
                     freqEvents=abberationCount/N,
                     pvals=pvals[idxs])
-  return (list(df=tmp,N=N,metric=c(rho=rho,auc=perf)))
+  return (list(df=tmp,N=N,metric=c(rho=rho,auc=perf),dataMatrix=A))
 }
 
 buildMutationMatrix <- function(synapseId){
@@ -309,4 +310,12 @@ plot_features <- function(F,drug, disease,top=25,text.cex=.7){
   }
 }
 
+assessLogicModel <- function(vIC50, drugFeatures, top=20){
+  candidates <- as.character(drugFeatures$df$genes[1:top])
+  dm <- drugFeatures$dataMatrix[candidates,]
+  vIC50.m <- vIC50[match(colnames(dm), names(vIC50))]
+  stopifnot(all(colnames(dm) == names(vIC50.m)))
+  
+  fit <- logreg(vIC50.m, t(dm), select=6)
+}
 

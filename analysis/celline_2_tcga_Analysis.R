@@ -19,6 +19,8 @@ skcm <- build.tcga.ds(geneExprId="~/projects/h3/data~/firehose/gdac.broadinstitu
                       rppaId="~/projects/h3/data~/firehose/gdac.broadinstitute.org_SKCM.RPPA_AnnotateWithGene.Level_3.2013032600.0.0/SKCM.rppa.txt",
                       cbioPrefix="skcm",isRNASeq=TRUE)
 blca <- build.tcga.ds(geneExprId="syn417761",rppaId="syn1681031",gisticId="syn1687592",cbioPrefix="syn1571577",isRNASeq=TRUE)
+lusc <- build.tcga.ds(geneExprId="syn1446244",rppaId="syn1446049",gisticId="syn1687612",cbioPrefix="lusc",isRNASeq=TRUE)
+
 
 # merge rectal and colon
 idxs1 <- groupMatch(rownames(coad$geneExpr), rownames(read$geneExpr))
@@ -29,17 +31,43 @@ crc <- list(geneExpr=cbind(coad$geneExpr[idxs1[[1]],], read$geneExpr[idxs1[[2]],
             gistic=cbind(coad$gistic[idxs3[[1]],], read$gistic[idxs3[[2]],]),
             mut=coad$mut)
 
+# save datasets for fast retreival
+save(brca, crc, blca, luad, skcm, lusc, file="~/data/TCGA_ds.rda")
+
+
 # triple neg brca
 brca.3neg <- brca
 brca.3neg$geneExpr <- brca.3neg$geneExpr[,as.matrix(brca$geneExpr)["ESR1",] < 8 & as.matrix(brca$geneExpr)["PGR",] < 8]
 brca.3neg$gistic <- brca.3neg$gistic[, as.matrix(brca$gistic)["ERBB2",] != 2]
 
+###############
+## fgfr in bladder
+carcinoma_mask <- !(getTissueType(sampleNames(sanger)) %in% c("CENTRAL_NERVOUS_SYSTEM","SKIN","HAEMATOPOIETIC_AND_LYMPHOID_TISSUE"))
+y_hat_fgfr <- virtual_ic50(sanger[,carcinoma_mask],"PD-173074",blca,reverseDrug=TRUE)
+blca_fgfr_vogel <- find_drug_features (y_hat_fgfr,blca, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="vogelstein")
+blca_fgfr_cosmic <- find_drug_features (y_hat_fgfr,blca, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="cosmic")
+blca_fgfr_cbio <- find_drug_features (y_hat_fgfr,brca, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="cbio")
+
+pdf("plots/brca_fgfr_vogel.pdf",width=10,height=6,useDingbats=F)
+plot_features(brca_fgfr_vogel, "PD-173074 (FGFR)","BRCA",text.cex=.9)
+dev.off()
+pdf("plots/brca_fgfr_cosmic.pdf",width=10,height=6,useDingbats=F)
+plot_features(brca_fgfr_cosmic, "PD-173074 (FGFR)","BRCA",text.cex=.9)
+dev.off()
+pdf("plots/brca_fgfr_cbio.pdf",width=10,height=6,useDingbats=F)
+plot_features(brca_fgfr_cbio, "PD-173074 (FGFR)","BRCA",text.cex=.9)
+dev.off()
+
+
 ##########################
 # BRAF inhib in melanoma
-melanoma_mask <- getTissueType(sampleNames(ccle)) %in% c("SKIN")
+#melanoma_mask <- getTissueType(sampleNames(ccle)) %in% c("SKIN")
 skcm_braf <- virtual_ic50(ccle, "PLX4720",skcm, seed=2013)
-skcm_braf_DF <- find_drug_features (skcm_braf,skcm, with.rppa=FALSE,beta_threshold=10^-3,driver.genes.only=TRUE)
-skcm_braf_rppa_DF <- find_drug_features (skcm_braf,skcm, with.rppa=TRUE,beta_threshold=10^-3,driver.genes.only=TRUE)
+skcm_braf_vogel <- find_drug_features (skcm_braf,skcm, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="vogelstein")
+skcm_braf_cosmic <- find_drug_features (skcm_braf,skcm, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="cosmic")
+
+skcm_braf_vogel$df[1:10,]
+
 pdf("plots/tcga/skcm_plx4720.pdf",width=10,height=6,useDingbats=F)
 plot_features(skcm_braf_DF, "PLX4720 (braf inib)","melanoma",text.cex=.9)
 dev.off()
@@ -100,18 +128,19 @@ y_hat_pi3k_2 <- virtual_ic50(sanger[,breast_mask],"NVP-BEZ235",brca,reverseDrug=
 ## fgfr in breast
 carcinoma_mask <- !(getTissueType(sampleNames(sanger)) %in% c("CENTRAL_NERVOUS_SYSTEM","SKIN","HAEMATOPOIETIC_AND_LYMPHOID_TISSUE"))
 y_hat_fgfr <- virtual_ic50(sanger[,carcinoma_mask],"PD-173074",brca,reverseDrug=TRUE)
-brca_fgfr_dgenes <- find_drug_features (y_hat_fgfr,brca, with.rppa=FALSE,beta_threshold=10^-3,driver.genes.only=TRUE)
-brca_fgfr_cgenes <- find_drug_features (y_hat_fgfr,brca, with.rppa=FALSE,beta_threshold=10^-3,driver.genes.only=FALSE)
-brca_fgfr_cgenes_rppa <- find_drug_features (y_hat_fgfr,brca, with.rppa=TRUE,beta_threshold=10^-3,driver.genes.only=FALSE)
-pdf("plots/tcga/brca_fgfr_dgenes.pdf",width=10,height=6,useDingbats=F)
-plot_features(brca_fgfr_dgenes, "PD-173074 (FGFR)","BRCA",text.cex=.9)
+brca_fgfr_vogel <- find_drug_features (y_hat_fgfr,brca, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="vogelstein")
+brca_fgfr_cosmic <- find_drug_features (y_hat_fgfr,brca, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="cosmic")
+brca_fgfr_cbio <- find_drug_features (y_hat_fgfr,brca, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="cbio")
+pdf("plots/brca_fgfr_vogel.pdf",width=10,height=6,useDingbats=F)
+plot_features(brca_fgfr_vogel, "PD-173074 (FGFR)","BRCA",text.cex=.9)
 dev.off()
-pdf("plots/tcga/brca_fgfr_cgenes.pdf",width=10,height=6,useDingbats=F)
-plot_features(brca_fgfr_cgenes, "PD-173074 (FGFR)","BRCA",text.cex=.9)
+pdf("plots/brca_fgfr_cosmic.pdf",width=10,height=6,useDingbats=F)
+plot_features(brca_fgfr_cosmic, "PD-173074 (FGFR)","BRCA",text.cex=.9)
 dev.off()
-pdf("plots/tcga/brca_fgfr_cgenes_rppa.pdf",width=10,height=6,useDingbats=F)
-plot_features(brca_fgfr_cgenes_rppa, "PD-173074 (FGFR)","BRCA",text.cex=.9)
+pdf("plots/brca_fgfr_cbio.pdf",width=10,height=6,useDingbats=F)
+plot_features(brca_fgfr_cbio, "PD-173074 (FGFR)","BRCA",text.cex=.9)
 dev.off()
+
 
 ####################
 ## MTOR in breast 

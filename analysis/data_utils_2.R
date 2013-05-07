@@ -115,7 +115,7 @@ getPharma_MetaGenomics <- function(synapseId){
   # Load the information on the pharmacologic profiling data
   pharma <- loadEntity(synapseId)$objects$pharma
   
-  compounds <- read.delim("~bmecham/compounds.txt",sep="\t",header=FALSE, stringsAsFactors=FALSE)
+  compounds <- read.delim("resources/compounds.txt",sep="\t",header=FALSE, stringsAsFactors=FALSE)
   compounds[which(is.na(compounds[,2])),2] <- compounds[which(is.na(compounds[,2])),1]
   compounds[ compounds[,2] == "",2] <- compounds[ compounds[,2] == "",1]
   compounds[,1] <- toupper(compounds[,1])

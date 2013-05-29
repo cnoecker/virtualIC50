@@ -132,42 +132,28 @@ virtual_ic50 <- function(cellLineEset, drugName, tcga.dat, seed=2013, reverseDru
   y_hat
 }
 
-
-#################################
-# combine gistic and mutation and rppa and fusion and ... for lasso model
-#
-find_drug_features <- function(drugvec, tcga.dat, other.dat=NULL, with.rppa=FALSE,beta_threshold=10^-3,num.bootstraps=50, randomize=FALSE,
-                               gene.dict=c("cbio","cosmic","vogelstein"),min.count=3,method="lasso"){
-  
-  #####
+build_feature_matrix <- function(tcga.dat,gene.dict=c("cbio","cosmic","vogelstein"),min.count=3,with.rppa=FALSE){
   type <- match.arg(gene.dict)
   switch(type,
-    vogelstein = (driver.genes <- read.table("resources/vogelstein_driver_genes.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]),
-    cosmic = (driver.genes <- read.table("resources/cancer_gene_census.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]),
-    cbio = (driver.genes <- read.table("./resources/cbio_cancer_genes.txt",sep="\t",header=T,as.is=T,quote="")$Gene.Symbol)
+         vogelstein = (driver.genes <- read.table("resources/vogelstein_driver_genes.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]),
+         cosmic = (driver.genes <- read.table("resources/cancer_gene_census.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]),
+         cbio = (driver.genes <- read.table("./resources/cbio_cancer_genes.txt",sep="\t",header=T,as.is=T,quote="")$Gene.Symbol)
   )
   
   if(with.rppa){
-    idxs <- groupMatch(names(drugvec), colnames(tcga.dat$mut), colnames(tcga.dat$gistic), colnames(tcga.dat$rppa))
+    idxs <- groupMatch(colnames(tcga.dat$mut), colnames(tcga.dat$gistic), colnames(tcga.dat$rppa))
   }else{
-    idxs <- groupMatch(names(drugvec), colnames(tcga.dat$mut), colnames(tcga.dat$gistic))
+    idxs <- groupMatch(colnames(tcga.dat$mut), colnames(tcga.dat$gistic))
   }
-  N <- length(idxs[[1]])
-  cat("Overlapping samples: ", N, "\n")
-  y_hat.m <- drugvec[idxs[[1]]]
-  mutM.m <- tcga.dat$mut[,idxs[[2]]]
+  mutM.m <- tcga.dat$mut[,idxs[[1]]]
   mutM.m <- mutM.m[rownames(mutM.m) %in% driver.genes,]
   
-  gistic.m <- tcga.dat$gistic[rownames(tcga.dat$gistic) %in% rownames(mutM.m),idxs[[3]]]
+  gistic.m <- tcga.dat$gistic[rownames(tcga.dat$gistic) %in% rownames(mutM.m),idxs[[2]]]
   if(with.rppa){
-    rppa.m <- tcga.dat$rppa[,idxs[[4]]]    
+    rppa.m <- tcga.dat$rppa[,idxs[[3]]]    
     rownames(rppa.m) <- paste("prot_", rownames(rppa.m),sep="")
   }
   
-  if(randomize){
-    y_hat.m <- y_hat.m[sample(length(y_hat.m))]
-  }
- 
   amp.m <- t(apply(gistic.m, 1, function(x) x > 1))
   del.m <- t(apply(gistic.m, 1, function(x) x < -1))
   amp.m <- amp.m[apply(amp.m, 1, sum) > min.count,]
@@ -187,21 +173,35 @@ find_drug_features <- function(drugvec, tcga.dat, other.dat=NULL, with.rppa=FALS
   
   A <- rbind(amp.m, del.m, mutM.m, mut_amp, mut_del)
   A <- A[rowSums(A) > 2,]
-  
+  A
+}
 
-  if(!randomize){ pvals <- apply(A, 1, function(x){ wilcox.test(y_hat.m ~ factor(x))$p.value}) }
-  if(with.rppa){
-    A <- rbind(A, rppa.m)
-    if(!randomize){ pvals <- c(pvals, apply(rppa.m, 1, function(x){ cor.test(x, y_hat.m)$p.value})) }
-  }
+
+#################################
+# combine gistic and mutation and rppa and fusion and ... for lasso model
+#
+find_drug_features <- function(drugvec, 
+                               featureMat,
+                               discreteFeatureMask,
+                               beta_threshold=10^-3,
+                               num.bootstraps=50,
+                               method="lasso"){
   
-  if(randomize){
-    pvals <- rep(NA, nrow(A))
+  #####
+  idxs <- groupMatch(names(drugvec), colnames(featureMat))
+  y_hat.m <- drugvec[idxs[[1]]]
+  A <- featureMat[, idxs[[2]]]
+  cat("Number samples = ", length(y_hat.m),"\n")
+  cat("Number features = ", nrow(A),"\n")
+
+  pvals <- rep(NA, nrow(A))
+  pvals[discreteFeatureMask] <- apply(A[discreteFeatureMask,], 1, function(x){ wilcox.test(y_hat.m ~ factor(x))$p.value})
+  if(sum(!discreteFeatureMask) > 0){
+    pvals[!discreteFeatureMask] <- apply(A[!discreteFeatureMask,,drop=FALSE], 1, function(x){ cor.test(x, y_hat.m,method="spearman")$p.value})
   }
-  
   if(method=='lasso'){
+    N <- length(y_hat.m)
     fits <- mclapply(1:num.bootstraps, function(i){
-      N <- length(y_hat.m)
       idxs <- sample(N,replace=TRUE)
       cv.fit <- cv.glmnet(t(A)[idxs,], y_hat.m[idxs], alpha=.99,nfolds=5)
       fit <- glmnet(t(A)[idxs,], y_hat.m[idxs], lambda=cv.fit$lambda.1se,alpha=.99)
@@ -240,6 +240,9 @@ find_drug_features <- function(drugvec, tcga.dat, other.dat=NULL, with.rppa=FALS
     pos_freq <- R.plus / (R.plus + R.neg)
     idxs <- order(rowSums(R),decreasing=T)
     
+    E <- rowMeans(do.call("cbind", lapply(fits, function(x) as.numeric(x$fit$beta))))
+    E <- E * apply(A, 1, sd)
+    
   }else if(method=="rf"){
     rf <- randomForest(x=t(A), y=y_hat.m)
     browser()
@@ -258,7 +261,7 @@ find_drug_features <- function(drugvec, tcga.dat, other.dat=NULL, with.rppa=FALS
                     noEvents=abberationCount,
                     freqEvents=abberationCount/N,
                     pvals=pvals[idxs])
-  return (list(df=tmp,N=N,metric=c(rho=rho,auc=perf),dataMatrix=A,fits=lapply(fits, function(x) x$fit)))
+  return (list(df=tmp,N=N,metric=c(rho=rho,auc=perf),effect=E,dataMatrix=A,fits=lapply(fits, function(x) x$fit)))
 }
 
 randomizeFeatureSelection <- function(A, yhat, numRandomizations=100, beta_threshold=10^-3){
@@ -389,7 +392,7 @@ plot_features <- function(F,drug, disease,top=25,text.cex=.7){
   }
 }
 
-plot_features_2 <- function(F,title,top=25,text.cex=.7,bubble.cex=1.5){
+plot_features_2 <- function(F,title,effectPlot=FALSE,top=25,text.cex=.7,bubble.cex=1.5){
   DF <- F$df[1:top,]
   N <- nrow(DF)
   sz <- DF$freqEvents * 20

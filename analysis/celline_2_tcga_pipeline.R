@@ -78,10 +78,23 @@ build.tcga.ds <- function(geneExprId, rppaId=NULL, gisticId=NULL, cbioPrefix, is
 
 ####################################
 
-virtual_ic50 <- function(cellLineEset, drugName, tcga.dat, seed=2013, reverseDrug=FALSE){
+virtual_ic50 <- function(cellLineEset, drugName, testExprs, seed=2013, reverseDrug=FALSE,perf.eval=TRUE,num.bootstraps=20){
   
-  common <- intersect(rownames(tcga.dat$geneExpr), featureNames(cellLineEset))
-  geneExpr.m <- tcga.dat$geneExpr[match(common, rownames(tcga.dat$geneExpr)),]
+  if(!is.list(testExprs)){
+    testExprs <- list(testExprs)
+  }
+  common <- featureNames(cellLineEset)
+  for(i in 1:length(testExprs)){
+    tmp <- testExprs[[i]]
+    common <- intersect(common, rownames(tmp))
+  }
+  
+  #common <- intersect(rownames(tcga.dat$geneExpr), featureNames(cellLineEset))
+  #geneExpr.m <- tcga.dat$geneExpr[match(common, rownames(tcga.dat$geneExpr)),]
+  for(i in 1:length(testExprs)){
+    tmp <- testExprs[[i]]
+    testExprs[[i]] <- tmp[match(common, rownames(tmp)),]
+  }
   CL.m <- cellLineEset[match(common,featureNames(cellLineEset)),]
   
   set.seed(seed)
@@ -94,7 +107,7 @@ virtual_ic50 <- function(cellLineEset, drugName, tcga.dat, seed=2013, reverseDru
   y = drug_vec[mask]
   
   cv <- cv.glmnet(t(X),y,alpha=.1,nfolds=5)
-  fits <- mclapply(1:20, function(i){
+  fits <- mclapply(1:num.bootstraps, function(i){
     N <- length(y)
     idxs <- sample(N,replace=TRUE)
     fit <- glmnet(t(X[,idxs]),y[idxs],alpha=.1,lambda=cv$lambda.min)
@@ -102,34 +115,43 @@ virtual_ic50 <- function(cellLineEset, drugName, tcga.dat, seed=2013, reverseDru
     y_hat[-idxs] <- predict(fit, t(X[,-idxs]))
     
     list(fit=fit,y_hat=y_hat)
-  },mc.cores=10,mc.set.seed=TRUE)
+  },mc.cores=3,mc.set.seed=TRUE)
   
   ############
   ## evaluate performance in cell lines
   
-  Ymatrix <- do.call("rbind", lapply(fits, function(x) x$y_hat))
-  Ymean <- colMeans(Ymatrix, na.rm=TRUE)
-  Ymed <- apply(Ymatrix, 2, median, na.rm=TRUE)
-  stopifnot(!any(is.na(Ymean)))
-  q <- quantile(y, c(.25, .75))
-  mask <- y <= q[1] | y >= q[2]
-  pred <- prediction(Ymean[mask], factor(y[mask] >= q[2]))
-  perf <- performance(pred, 'auc')@y.values[[1]]
-  plot(performance(pred, 'tpr','fpr'),main=paste(drugName, " (n=",length(y),")",sep=""))
-  text(.4, .4, labels=paste("AUC=",format(perf,digits=2),sep=""),cex=.7,pos=4)
-  
+  if(perf.eval){
+    Ymatrix <- do.call("rbind", lapply(fits, function(x) x$y_hat))
+    Ymean <- colMeans(Ymatrix, na.rm=TRUE)
+    Ymed <- apply(Ymatrix, 2, median, na.rm=TRUE)
+    stopifnot(!any(is.na(Ymean)))
+    q <- quantile(y, c(.25, .75))
+    mask <- y <= q[1] | y >= q[2]
+    pred <- prediction(Ymean[mask], factor(y[mask] >= q[2]))
+    perf <- performance(pred, 'auc')@y.values[[1]]
+    plot(performance(pred, 'tpr','fpr'),main=paste(drugName, " (n=",length(y),")",sep=""))
+    text(.4, .4, labels=paste("AUC=",format(perf,digits=2),sep=""),cex=.7,pos=4)
+  }
   ###########
   ## apply models on new data
   m <- apply(X, 1, mean)
   sd <- apply(X, 1, sd)
-  geneExpr.scaled <- normalize_to_X(m, sd, geneExpr.m)
   
-  y_hats <- sapply(fits, function(x){
-    predict(x$fit, t(geneExpr.scaled))
+  y_hats <- lapply(testExprs, function(geneExpr){
+    geneExpr.scaled <- normalize_to_X(m, sd, geneExpr)
+  
+    y_hats <- sapply(fits, function(x){
+      predict(x$fit, t(geneExpr.scaled))
+    })
+    y_hat <- rowMeans(y_hats)
+    names(y_hat) <- colnames(geneExpr)
+    y_hat
   })
-  y_hat <- rowMeans(y_hats)
-  names(y_hat) <- colnames(geneExpr.m)
-  y_hat
+  if(length(y_hats)==1){
+    return(y_hats[[1]])
+  }else{
+    return (y_hats)
+  }                 
 }
 
 build_feature_matrix <- function(tcga.dat,gene.dict=c("cbio","cosmic","vogelstein"),min.count=3,with.rppa=FALSE){

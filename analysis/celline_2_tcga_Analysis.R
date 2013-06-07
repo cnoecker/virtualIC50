@@ -20,6 +20,8 @@ skcm <- build.tcga.ds(geneExprId="~/projects/h3/data~/firehose/gdac.broadinstitu
                       cbioPrefix="skcm",isRNASeq=TRUE)
 blca <- build.tcga.ds(geneExprId="syn417761",rppaId="syn1681031",gisticId="syn1687592",cbioPrefix="syn1571577",isRNASeq=TRUE)
 lusc <- build.tcga.ds(geneExprId="syn1446244",rppaId="syn1446049",gisticId="syn1687612",cbioPrefix="lusc",isRNASeq=TRUE)
+laml <- build.tcga.ds(geneExprId="syn1681082",rppaId=NULL,gisticId="data~/laml/laml_all_thresholded.by_genes.txt",cbioPrefix="laml",isRNASeq=TRUE)
+
 
 
 # merge rectal and colon
@@ -32,7 +34,8 @@ crc <- list(geneExpr=cbind(coad$geneExpr[idxs1[[1]],], read$geneExpr[idxs1[[2]],
             mut=coad$mut)
 
 # save datasets for fast retreival
-save(brca, crc, blca, luad, skcm, lusc, file="~/data/TCGA_ds.rda")
+save(brca, crc, blca, luad, skcm, lusc, laml, file="~/data/TCGA_ds.rda")
+load("~/data/TCGA_ds.rda")
 
 
 # triple neg brca
@@ -61,10 +64,18 @@ dev.off()
 
 ##########################
 # BRAF inhib in melanoma
-#melanoma_mask <- getTissueType(sampleNames(ccle)) %in% c("SKIN")
+melanoma_mask <- getTissueType(sampleNames(ccle)) %in% c("SKIN")
+pdf("results/skcm/skcm_plx4720_perf.pdf",width=4,height=4)
 skcm_braf <- virtual_ic50(ccle, "PLX4720",skcm, seed=2013)
-skcm_braf_vogel <- find_drug_features (skcm_braf,skcm, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="vogelstein")
-skcm_braf_cosmic <- find_drug_features (skcm_braf,skcm, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="cosmic")
+dev.off()
+#skcm_braf_vogel <- find_drug_features (skcm_braf,skcm, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="vogelstein")
+#skcm_braf_cosmic <- find_drug_features (skcm_braf,skcm, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="cosmic")
+
+fMat <- build_feature_matrix(skcm, gene.dict="cosmic",with.rppa=FALSE)
+drug_fmat <- find_drug_features(skcm_braf, fMat, rep(TRUE, nrow(fMat)), beta_threshold=10^-3)
+pdf("results/skcm/skcm_plx4720_cosmic.pdf",width=10,height=6,useDingbats=F)
+plot_features_2(drug_fmat, "RAF inhibitor / Melanoma",top=25,text.cex=.9)
+dev.off()
 
 skcm_braf_vogel$df[1:10,]
 
@@ -82,36 +93,61 @@ skcm_braf_2 <- virtual_ic50(ccle, "SORAFENIB",skcm, seed=2013)
 ## MEK in crc
 carcinoma_mask <- !(getTissueType(sampleNames(ccle)) %in% c("CENTRAL_NERVOUS_SYSTEM","SKIN","HAEMATOPOIETIC_AND_LYMPHOID_TISSUE"))
 coad_mek <- virtual_ic50(ccle[,carcinoma_mask], "PD0325901",crc, seed=2013)
-coad_mek_driver <- find_drug_features (coad_mek,crc, with.rppa=FALSE,beta_threshold=10^-3,driver.genes.only=TRUE)
-coad_mek_cgenes <- find_drug_features (coad_mek,crc, with.rppa=FALSE,beta_threshold=10^-3,driver.genes.only=FALSE)
-coad_mek_cgenes_rppa <- find_drug_features (coad_mek,crc, with.rppa=TRUE,beta_threshold=10^-3,driver.genes.only=FALSE)
+coad_mek_vogel <- find_drug_features (coad_mek,crc, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="vogelstein")
+coad_mek_cosmic <- find_drug_features (coad_mek,crc, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="cosmic")
+coad_mek_cbio <- find_drug_features (coad_mek,crc, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="cbio")
 
 coad_mek_null <- t(replicate(100, find_drug_features (coad_mek,crc, with.rppa=FALSE,beta_threshold=10^-3,num.bootstraps=5,randomize=TRUE)$metric))
 coad_mek_rppa_null <- t(replicate(100, find_drug_features (coad_mek,crc, with.rppa=TRUE,beta_threshold=10^-3,num.bootstraps=5,randomize=TRUE)$metric))
 
-pdf("plots/tcga/crc_mek_dgenes.pdf",width=10,height=6,useDingbats=F)
-plot_features(coad_mek_driver, "MEK","CRC",text.cex=.9)
+pdf("plots/crc_mek_vogel.pdf",width=10,height=6,useDingbats=F)
+plot_features(coad_mek_vogel, "MEK","CRC",text.cex=.9)
 dev.off()
-pdf("plots/tcga/crc_mek_cgenes.pdf",width=10,height=6,useDingbats=F)
-plot_features(coad_mek_cgenes, "MEK","CRC",text.cex=.9)
+pdf("plots/crc_mek_cosmic.pdf",width=10,height=6,useDingbats=F)
+plot_features(coad_mek_cosmic, "MEK","CRC",text.cex=.9)
 dev.off()
-pdf("plots/tcga/crc_mek_cgenes_rppa.pdf",width=10,height=6,useDingbats=F)
-plot_features(coad_mek_cgenes_rppa, "MEK","CRC",text.cex=.9)
+pdf("plots/crc_mek_cbio.pdf",width=10,height=6,useDingbats=F)
+plot_features(coad_mek_cbio, "MEK","CRC",text.cex=.9)
 dev.off()
+
+##########################
+## MEK in luad
+carcinoma_mask <- !(getTissueType(sampleNames(ccle)) %in% c("CENTRAL_NERVOUS_SYSTEM","SKIN","HAEMATOPOIETIC_AND_LYMPHOID_TISSUE"))
+luad_mek <- virtual_ic50(ccle[,carcinoma_mask], "PD0325901",luad, seed=2013)
+
+luad_mek_vogel <- find_drug_features (luad_mek, luad, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="vogelstein")
+luad_mek_cosmic <- find_drug_features (luad_mek, luad, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="cosmic")
+luad_mek_cbio <- find_drug_features (luad_mek, luad, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="cbio")
+
+luad_mek_vogel <- find_drug_features (luad_mek, luad, with.rppa=FALSE,beta_threshold=10^-3,gene.dict="cosmic",method="rf")
+
+pdf("plots/luad_mek_vogel.pdf",width=10,height=6,useDingbats=F)
+plot_features(luad_mek_vogel, "MEK","LUAD",text.cex=.9)
+dev.off()
+pdf("plots/luad_mek_cosmic.pdf",width=10,height=6,useDingbats=F)
+plot_features(luad_mek_cosmic, "MEK","LUAD",text.cex=.9)
+dev.off()
+pdf("plots/luad_mek_cbio.pdf",width=10,height=6,useDingbats=F)
+plot_features(luad_mek_cbio, "MEK","LUAD",text.cex=.9)
+dev.off()
+
+drugVec <- pData(ccle)[getTissueType(sampleNames(ccle)) == "LUNG", "PD0325901",drop=FALSE]
+
+ccleModelApply(luad_mek_cosmic, drugVec)
 
 #########################
 # erlotinib in LUNG
 lung_mask <- getTissueType(sampleNames(ccle)) %in% c("LUNG")
+pdf("results/luad/luad_erlotonib_perf.pdf",width=6,height=6)
 luad_erl <- virtual_ic50(ccle[,lung_mask], "ERLOTONIB",luad, seed=2013)
-luad_erl_DF <- find_drug_features (luad_erl,luad, with.rppa=FALSE,beta_threshold=10^-3)
-luad_erl_rppa_DF <- find_drug_features (luad_erl,luad, with.rppa=TRUE,beta_threshold=10^-3)
+dev.off()
 
-pdf("plots/tcga/luad_erl.pdf",width=10,height=6,useDingbats=F)
-plot_features(luad_erl_DF, "Erlotinib","LUAD",text.cex=.9)
+fMat <- build_feature_matrix(luad, gene.dict="cosmic",with.rppa=FALSE)
+drug_fmat <- find_drug_features(luad_erl, fMat, rep(TRUE, nrow(fMat)), beta_threshold=10^-3)
+pdf("results/luad/luad_egfr_cosmic.pdf",width=10,height=6,useDingbats=F)
+plot_features_2(drug_fmat, "Erlotonib / Lung Adenocarcinoma",top=25,text.cex=.9)
 dev.off()
-pdf("plots/tcga/luad_rppa_erl.pdf",width=10,height=6,useDingbats=F)
-plot_features(luad_erl_rppa_DF, "Erlotinib","LUAD",text.cex=.9)
-dev.off()
+
 
 ###################
 # breast, pik3 pathway
@@ -144,19 +180,18 @@ dev.off()
 
 ####################
 ## MTOR in breast 
+carcinoma_mask <- !(getTissueType(sampleNames(sanger)) %in% c("CENTRAL_NERVOUS_SYSTEM","SKIN","HAEMATOPOIETIC_AND_LYMPHOID_TISSUE"))
+pdf("results/brca/brca_mtor_perf.pdf",width=6,height=6)
 y_hat_mtor <- virtual_ic50(sanger[,carcinoma_mask],"Temsirolimus",brca,reverseDrug=TRUE)
-brca_mtor_dgenes <- find_drug_features (y_hat_mtor,brca, with.rppa=FALSE,beta_threshold=10^-3,driver.genes.only=TRUE)
-brca_mtor_cgenes <- find_drug_features (y_hat_mtor,brca, with.rppa=FALSE,beta_threshold=10^-3,driver.genes.only=FALSE)
-brca_mtor_cgenes_rppa <- find_drug_features (y_hat_mtor,brca, with.rppa=TRUE,beta_threshold=10^-3,driver.genes.only=FALSE)
-pdf("plots/tcga/brca_mtor_dgenes.pdf",width=10,height=6,useDingbats=F)
-plot_features(brca_mtor_dgenes, "Temsirolimus","BRCA",text.cex=.9)
 dev.off()
-pdf("plots/tcga/brca_mtor_cgenes.pdf",width=10,height=6,useDingbats=F)
-plot_features(brca_mtor_cgenes, "Temsirolimus","BRCA",text.cex=.9)
+
+fMat <- build_feature_matrix(brca, gene.dict="cosmic",with.rppa=FALSE)
+drug_fmat <- find_drug_features(y_hat_mtor, fMat, rep(TRUE, nrow(fMat)), beta_threshold=10^-3)
+pdf("results/brca/brca_mtor_cosmic.pdf",width=10,height=6,useDingbats=F)
+plot_features_2(drug_fmat, "Temsirolimus / Breast Cancer",top=25,text.cex=.9)
 dev.off()
-pdf("plots/tcga/brca_mtor_cgenes_rppa.pdf",width=10,height=6,useDingbats=F)
-plot_features(brca_mtor_cgenes_rppa, "Temsirolimus","BRCA",text.cex=.9)
-dev.off()
+
+
 
 ################
 ## MTOR 3neg bc
@@ -173,20 +208,17 @@ dev.off()
 ##################
 ## her2/egfr in breast
 carcinoma_mask <- !(getTissueType(sampleNames(ccle)) %in% c("CENTRAL_NERVOUS_SYSTEM","SKIN","HAEMATOPOIETIC_AND_LYMPHOID_TISSUE"))
+pdf("results/brca/brca_her2egfr_perf.pdf",width=6,height=6)
 y_hat_her2 <- virtual_ic50(ccle[,carcinoma_mask], "LAPATINIB",brca, seed=2013)
+dev.off()
 
-brca_her2_dgenes <- find_drug_features (y_hat_her2,brca, with.rppa=FALSE,beta_threshold=10^-3,driver.genes.only=TRUE)
-brca_her2_cgenes <- find_drug_features (y_hat_her2,brca, with.rppa=FALSE,beta_threshold=10^-3,driver.genes.only=FALSE)
-brca_her2_cgenes_rppa <- find_drug_features (y_hat_her2,brca, with.rppa=TRUE,beta_threshold=10^-3,driver.genes.only=FALSE)
-pdf("plots/tcga/brca_her2_dgenes.pdf",width=10,height=6,useDingbats=F)
-plot_features(brca_her2_dgenes, "Lapatanib","BRCA",text.cex=.9)
+fMat <- build_feature_matrix(brca, gene.dict="cosmic",with.rppa=FALSE)
+drug_fmat <- find_drug_features(y_hat_her2, fMat, rep(TRUE, nrow(fMat)), beta_threshold=10^-3)
+pdf("results/brca/brca_her2egfr_cosmic.pdf",width=10,height=6,useDingbats=F)
+plot_features_2(drug_fmat, "Lapatanib / Breast Cancer",top=25,text.cex=.9)
 dev.off()
-pdf("plots/tcga/brca_her2_cgenes.pdf",width=10,height=6,useDingbats=F)
-plot_features(brca_her2_cgenes, "Lapatanib","BRCA",text.cex=.9)
-dev.off()
-pdf("plots/tcga/brca_her2_cgenes_rppa.pdf",width=10,height=6,useDingbats=F)
-plot_features(brca_her2_cgenes_rppa, "Lapatanib","BRCA",text.cex=.9)
-dev.off()
+
+
 
 ###################
 # PIK3B in breast

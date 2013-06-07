@@ -1,5 +1,8 @@
 groupMatch <- function(...){
   args <- list(...)
+  if(length(args) == 1 && is.list(args[[1]])){
+    args <- args[[1]]
+  }
   if(length(args) < 2){
     warning("Expected more than one argument")
     return(NULL)

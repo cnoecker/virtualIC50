@@ -1,5 +1,6 @@
 
 source("analysis/JGLibrary.R")
+source("analysis/cellline_2_tcga_mutationImporter.R")
 library(cgdsr)
 library(glmnet)
 library(parallel)
@@ -17,8 +18,13 @@ sample.ids <- function(x){
   gsub("(TCGA\\.\\w{2}\\.\\w{4}\\.\\d{2}).*","\\1",x) 
 }
 
+patient.ids <- function(x){
+  gsub("(TCGA\\.\\w{2}\\.\\w{4}).*","\\1",x) 
+}
 
-build.tcga.ds <- function(geneExprId, rppaId=NULL, gisticId=NULL, cbioPrefix, isRNASeq=TRUE){
+
+
+build.tcga.ds <- function(geneExprId, rppaId=NULL, gisticId=NULL, cbioPrefix, isRNASeq=TRUE, missenseFilter=TRUE){
   
   if(startsWith(geneExprId,"syn")){
     e <- loadEntity(geneExprId)
@@ -67,11 +73,11 @@ build.tcga.ds <- function(geneExprId, rppaId=NULL, gisticId=NULL, cbioPrefix, is
     colnames(gistic) <- gsub("(TCGA\\.\\w{2}\\.\\w{4}).*","\\1", colnames(gistic))
   }
   
-  if(startsWith(cbioPrefix,"syn")){
-    muts <- buildMutationMatrix(cbioPrefix)
-  }else{
-    muts <- getCBIOMutationCalls(cbioPrefix)
-  }
+  #if(startsWith(cbioPrefix,"syn")){
+  muts <- buildMutationMatrixFromPANCAN(cbioPrefix,cancer.genes=TRUE,missenseFilter=missenseFilter)
+  #}else{
+  #  muts <- getCBIOMutationCalls(cbioPrefix)
+  #}
   
   return (list(geneExpr=geneExpr, rppa=rppa,gistic=gistic,mut=muts))
 }
@@ -79,7 +85,7 @@ build.tcga.ds <- function(geneExprId, rppaId=NULL, gisticId=NULL, cbioPrefix, is
 ####################################
 
 virtual_ic50 <- function(cellLineEset, drugName, testExprs, seed=2013, reverseDrug=FALSE,perf.eval=TRUE,num.bootstraps=20){
-  
+  #browser()
   if(!is.list(testExprs)){
     testExprs <- list(testExprs)
   }
@@ -124,7 +130,10 @@ virtual_ic50 <- function(cellLineEset, drugName, testExprs, seed=2013, reverseDr
     Ymatrix <- do.call("rbind", lapply(fits, function(x) x$y_hat))
     Ymean <- colMeans(Ymatrix, na.rm=TRUE)
     Ymed <- apply(Ymatrix, 2, median, na.rm=TRUE)
-    stopifnot(!any(is.na(Ymean)))
+    na.mask <- !is.na(Ymean)
+    Ymean <- Ymean[na.mask]
+    y <- y[na.mask]
+    
     q <- quantile(y, c(.25, .75))
     mask <- y <= q[1] | y >= q[2]
     pred <- prediction(Ymean[mask], factor(y[mask] >= q[2]))
@@ -154,13 +163,12 @@ virtual_ic50 <- function(cellLineEset, drugName, testExprs, seed=2013, reverseDr
   }                 
 }
 
-build_feature_matrix <- function(tcga.dat,gene.dict=c("cbio","cosmic","vogelstein"),min.count=3,with.rppa=FALSE){
-  type <- match.arg(gene.dict)
-  switch(type,
-         vogelstein = (driver.genes <- read.table("resources/vogelstein_driver_genes.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]),
-         cosmic = (driver.genes <- read.table("resources/cancer_gene_census.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]),
-         cbio = (driver.genes <- read.table("./resources/cbio_cancer_genes.txt",sep="\t",header=T,as.is=T,quote="")$Gene.Symbol)
-  )
+build_feature_matrix <- function(tcga.dat,min.count=3,hamDistanceThreshold=1,with.rppa=FALSE){
+  
+  driver.genes.vogel <- read.table("resources/vogelstein_driver_genes.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]
+  driver.genes.cosmic = read.table("resources/cancer_gene_census.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]
+         
+  driver.genes <- union(driver.genes.vogel, driver.genes.cosmic)
   
   if(with.rppa){
     idxs <- groupMatch(colnames(tcga.dat$mut), colnames(tcga.dat$gistic), colnames(tcga.dat$rppa))
@@ -169,32 +177,65 @@ build_feature_matrix <- function(tcga.dat,gene.dict=c("cbio","cosmic","vogelstei
   }
   mutM.m <- tcga.dat$mut[,idxs[[1]]]
   mutM.m <- mutM.m[rownames(mutM.m) %in% driver.genes,]
+  # change to logical matrix
+  mutM.m <- matrix(mutM.m != "", nrow=nrow(mutM.m),dimnames=dimnames(mutM.m))
+  gistic.m <- tcga.dat$gistic[rownames(tcga.dat$gistic) %in% driver.genes,idxs[[2]]]
   
-  gistic.m <- tcga.dat$gistic[rownames(tcga.dat$gistic) %in% rownames(mutM.m),idxs[[2]]]
   if(with.rppa){
     rppa.m <- tcga.dat$rppa[,idxs[[3]]]    
     rownames(rppa.m) <- paste("prot_", rownames(rppa.m),sep="")
   }
   
-  amp.m <- t(apply(gistic.m, 1, function(x) x > 1))
-  del.m <- t(apply(gistic.m, 1, function(x) x < -1))
-  amp.m <- amp.m[apply(amp.m, 1, sum) > min.count,]
-  del.m <- del.m[apply(del.m, 1, sum) > min.count,]
-  mutM.m <- mutM.m[apply(mutM.m, 1, sum) > min.count, ]
+  amp.m <- t(apply(gistic.m, 1, function(x) x == 2))
+  del.m <- t(apply(gistic.m, 1, function(x) x == -2))
+  #amp.m <- amp.m[apply(amp.m, 1, sum) > min.count,]
+  #del.m <- del.m[apply(del.m, 1, sum) > min.count,]
+  #mutM.m <- mutM.m[apply(mutM.m, 1, sum) > min.count, ]
   
-  idxs <- groupMatch(rownames(mutM.m), rownames(amp.m))
-  mut_amp <- mutM.m[idxs[[1]],] | amp.m[idxs[[2]],]
-  idxs <- groupMatch(rownames(mutM.m), rownames(del.m))
-  mut_del <- mutM.m[idxs[[1]],] | del.m[idxs[[2]],]
+  idxs <- groupMatch(rownames(mutM.m), rownames(gistic.m))
+  mut_cna_M <- do.call("rbind",lapply(1:length(idxs[[1]]), function(i){
+    mut.idx <- idxs[[1]][i]
+    gistic.idx <- idxs[[2]][i]
+    gene <- rownames(mutM.m)[mut.idx]
+    mut <- mutM.m[mut.idx,]
+    gistic <- gistic.m[gistic.idx,]
+    R <- list()
+    # amplification
+    amp <- gistic == 2
+    tmp <- mut | amp
+    if(!(sum(xor(tmp, mut)) < 2 | sum(xor(tmp,amp)) < 2)){
+      R[[paste(gene,"_mutORamp",sep="")]] <- tmp
+    }
+    # homozygous deletion
+    homo.del <- gistic == -2
+    tmp <- mut | homo.del
+    ## keep if not 
+    if(!(sum(xor(tmp, mut)) < 2 | sum(xor(tmp,homo.del)) < 2)){
+      R[[paste(gene,"_mutORdel",sep="")]] <- tmp
+    }
+    do.call("rbind",R)
+  }))
   
-  rownames(amp.m) <- paste("amp_", rownames(amp.m),sep="")
-  rownames(del.m) <- paste("del_", rownames(del.m),sep="")
-  rownames(mutM.m) <- paste("mut_", rownames(mutM.m),sep="")
-  rownames(mut_amp) <- paste("mut_amp_", rownames(mut_amp),sep="")
-  rownames(mut_del) <- paste("mut_del_", rownames(mut_del),sep="")
+  rownames(amp.m) <- paste(rownames(amp.m),"_amp",sep="")
+  rownames(del.m) <- paste(rownames(del.m),"_del",sep="")
+  rownames(mutM.m) <- paste(rownames(mutM.m),"_mut",sep="")
+  M <- rbind(mutM.m, amp.m, del.m, mut_cna_M)
   
-  A <- rbind(amp.m, del.m, mutM.m, mut_amp, mut_del)
-  A <- A[rowSums(A) > 2,]
+  A <- combine.features.by.hammingdistance(M,mincountPerRow=min.count,hammingDistThreshold=1)
+  
+  #idxs <- groupMatch(rownames(mutM.m), rownames(amp.m))
+  #mut_amp <- mutM.m[idxs[[1]],] | amp.m[idxs[[2]],]
+  #idxs <- groupMatch(rownames(mutM.m), rownames(del.m))
+  #mut_del <- mutM.m[idxs[[1]],] | del.m[idxs[[2]],]
+  
+  #rownames(amp.m) <- paste("amp_", rownames(amp.m),sep="")
+  #rownames(del.m) <- paste("del_", rownames(del.m),sep="")
+  #rownames(mutM.m) <- paste("mut_", rownames(mutM.m),sep="")
+  #rownames(mut_amp) <- paste("mut_amp_", rownames(mut_amp),sep="")
+  #rownames(mut_del) <- paste("mut_del_", rownames(mut_del),sep="")
+  
+  #A <- rbind(amp.m, del.m, mutM.m, mut_amp, mut_del)
+  #A <- A[rowSums(A) > 2,]
   A
 }
 
@@ -286,38 +327,6 @@ find_drug_features <- function(drugvec,
   return (list(df=tmp,N=N,metric=c(rho=rho,auc=perf),effect=E,dataMatrix=A,fits=lapply(fits, function(x) x$fit)))
 }
 
-randomizeFeatureSelection <- function(A, yhat, numRandomizations=100, beta_threshold=10^-3){
-  #browser()
-  idxs <- groupMatch(names(yhat), colnames(A))
-  yhat.m <- yhat[idxs[[1]]]
-  A.m <- A[, idxs[[2]]]
-  N <- length(yhat.m)
-  sapply(1:numRandomizations, function(i){
-    idxs <- sample(N)
-    cv.fit <- cv.glmnet(t(A), yhat.m[idxs], alpha=.99,nfolds=5)
-    fit <- glmnet(t(A), yhat.m[idxs], lambda=cv.fit$lambda.1se,alpha=.99)
-    abs(as.numeric(fit$beta)) > beta_threshold
-  })
-}
-
-
-buildMutationMatrix <- function(synapseId){
-  e <- loadEntity(synapseId)
-  tbl <- read.table(paste(e$cacheDir,"/",e$files,sep=""),header=T,as.is=T,quote="",fill=T,sep="\t")
-  
-  filtered.tbl <- tbl[tbl$Variant_Classification %in% c("Frame_Shift_Del","Frame_Shift_Ins","Missense_Mutation","Nonsense_Mutation"),]
-  
-  samples <- sort(unique(tbl$Tumor_Sample_Barcode))
-  genes <- sort(unique(tbl$Hugo_Symbol))
-  M <- matrix(0, nrow=length(genes),ncol=length(samples),dimnames=list(genes,samples))
-  
-  idxs.list <- oneToManyOperation(genes, filtered.tbl$Hugo_Symbol)
-  for(i in 1:length(idxs.list)){
-    barcodes <- filtered.tbl$Tumor_Sample_Barcode[idxs.list[[i]]]
-    M[i, barcodes] <- 1
-  }
-  return (M)
-}
 
 getCBIO_CCLECalls <- function(genes){
   mycgds = CGDS("http://www.cbioportal.org/public-portal/")
@@ -366,24 +375,24 @@ ccleModelApply <- function(fgf, drugVector){
   cor.test(yhat, drugVector.m[,1],method="spearman")
 }
 
-getCBIOMutationCalls <- function(cbioPrefix, batchSize=500){
-  
-  mycgds = CGDS("http://www.cbioportal.org/public-portal/")
-  
-  cancer_genes <- read.table("./resources/cbio_cancer_genes.txt",sep="\t",header=T,as.is=T,quote="")$Gene.Symbol
-  cancer_genes <- cancer_genes[cancer_genes != ""]
-  N <- length(cancer_genes)
-  ncalls <- as.integer(N / 500) + 1
-  R <- do.call("cbind", lapply(1:ncalls, function(i){
-    start <- (i-1) * batchSize + 1
-    end <- min(start + batchSize - 1, N)
-    getProfileData(mycgds,cancer_genes[start:end],paste(cbioPrefix,"_tcga_mutations",sep=""),paste(cbioPrefix,"_tcga_sequenced",sep=""))  
-  }))
-  tmp <- as.matrix(data.frame(lapply(R, as.character), stringsAsFactors=FALSE))
-  tmp[tmp=="NaN"] = NA
-  mutM <- t(matrix(!is.na(tmp),nrow=nrow(tmp),dimnames=dimnames(R)))
-  mutM
-}
+# getCBIOMutationCalls <- function(cbioPrefix, batchSize=500){
+#   
+#   mycgds = CGDS("http://www.cbioportal.org/public-portal/")
+#   
+#   cancer_genes <- read.table("./resources/cbio_cancer_genes.txt",sep="\t",header=T,as.is=T,quote="")$Gene.Symbol
+#   cancer_genes <- cancer_genes[cancer_genes != ""]
+#   N <- length(cancer_genes)
+#   ncalls <- as.integer(N / 500) + 1
+#   R <- do.call("cbind", lapply(1:ncalls, function(i){
+#     start <- (i-1) * batchSize + 1
+#     end <- min(start + batchSize - 1, N)
+#     getProfileData(mycgds,cancer_genes[start:end],paste(cbioPrefix,"_tcga_mutations",sep=""),paste(cbioPrefix,"_tcga_sequenced",sep=""))  
+#   }))
+#   tmp <- as.matrix(data.frame(lapply(R, as.character), stringsAsFactors=FALSE))
+#   tmp[tmp=="NaN"] = NA
+#   mutM <- t(matrix(!is.na(tmp),nrow=nrow(tmp),dimnames=dimnames(R)))
+#   mutM
+# }
 
 plot_features <- function(F,drug, disease,top=25,text.cex=.7){
   DF <- F$df[1:top,]

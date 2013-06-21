@@ -23,7 +23,6 @@ patient.ids <- function(x){
 }
 
 
-
 build.tcga.ds <- function(geneExprId, rppaId=NULL, gisticId=NULL, cbioPrefix, isRNASeq=TRUE, missenseFilter=TRUE){
   
   if(startsWith(geneExprId,"syn")){
@@ -163,10 +162,10 @@ virtual_ic50 <- function(cellLineEset, drugName, testExprs, seed=2013, reverseDr
   }                 
 }
 
-build_feature_matrix <- function(tcga.dat,min.count=3,hamDistanceThreshold=1,with.rppa=FALSE){
+build_feature_matrix <- function(tcga.dat,min.count=3,hammingDistanceThreshold=1,with.rppa=FALSE){
   
   driver.genes.vogel <- read.table("resources/vogelstein_driver_genes.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]
-  driver.genes.cosmic = read.table("resources/cancer_gene_census.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]
+  driver.genes.cosmic <- read.table("resources/cancer_gene_census.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]
          
   driver.genes <- union(driver.genes.vogel, driver.genes.cosmic)
   
@@ -187,10 +186,6 @@ build_feature_matrix <- function(tcga.dat,min.count=3,hamDistanceThreshold=1,wit
   }
   
   amp.m <- t(apply(gistic.m, 1, function(x) x == 2))
-  del.m <- t(apply(gistic.m, 1, function(x) x == -2))
-  #amp.m <- amp.m[apply(amp.m, 1, sum) > min.count,]
-  #del.m <- del.m[apply(del.m, 1, sum) > min.count,]
-  #mutM.m <- mutM.m[apply(mutM.m, 1, sum) > min.count, ]
   
   idxs <- groupMatch(rownames(mutM.m), rownames(gistic.m))
   mut_cna_M <- do.call("rbind",lapply(1:length(idxs[[1]]), function(i){
@@ -200,42 +195,42 @@ build_feature_matrix <- function(tcga.dat,min.count=3,hamDistanceThreshold=1,wit
     mut <- mutM.m[mut.idx,]
     gistic <- gistic.m[gistic.idx,]
     R <- list()
-    # amplification
+    # amplification OR mutation
     amp <- gistic == 2
     tmp <- mut | amp
     if(!(sum(xor(tmp, mut)) < 2 | sum(xor(tmp,amp)) < 2)){
       R[[paste(gene,"_mutORamp",sep="")]] <- tmp
     }
-    # homozygous deletion
+    
     homo.del <- gistic == -2
-    tmp <- mut | homo.del
+    hetero.del <- gistic == -1
+    
+    # deletion is homozygous deltion OR (mutation and heterozygous deltion)
+    del <- (mut & hetero.del) | homo.del
     ## keep if not 
-    if(!(sum(xor(tmp, mut)) < 2 | sum(xor(tmp,homo.del)) < 2)){
-      R[[paste(gene,"_mutORdel",sep="")]] <- tmp
+    if(!(sum(xor(del, mut)) < 2)){
+      R[[paste(gene,"_del",sep="")]] <- del
     }
+    
+    # deletion OR mutation
+    tmp <- del | mut
+    ## keep if not 
+    if(!(sum(xor(tmp, del)) < 2 | sum(xor(tmp,mut)) < 2)){
+      R[[paste(gene,"_delORmut",sep="")]] <- tmp
+    }
+    
+    # 
     do.call("rbind",R)
   }))
   
   rownames(amp.m) <- paste(rownames(amp.m),"_amp",sep="")
-  rownames(del.m) <- paste(rownames(del.m),"_del",sep="")
   rownames(mutM.m) <- paste(rownames(mutM.m),"_mut",sep="")
-  M <- rbind(mutM.m, amp.m, del.m, mut_cna_M)
+  M <- rbind(mutM.m, amp.m, mut_cna_M)
   
-  A <- combine.features.by.hammingdistance(M,mincountPerRow=min.count,hammingDistThreshold=1)
+  # this will remove features that don't have at least mincount aberrations
+  # and will also combined features that have similar hamming distance
+  A <- combine.features.by.hammingdistance(M,mincountPerRow=min.count,hammingDistThreshold=hammingDistanceThreshold)
   
-  #idxs <- groupMatch(rownames(mutM.m), rownames(amp.m))
-  #mut_amp <- mutM.m[idxs[[1]],] | amp.m[idxs[[2]],]
-  #idxs <- groupMatch(rownames(mutM.m), rownames(del.m))
-  #mut_del <- mutM.m[idxs[[1]],] | del.m[idxs[[2]],]
-  
-  #rownames(amp.m) <- paste("amp_", rownames(amp.m),sep="")
-  #rownames(del.m) <- paste("del_", rownames(del.m),sep="")
-  #rownames(mutM.m) <- paste("mut_", rownames(mutM.m),sep="")
-  #rownames(mut_amp) <- paste("mut_amp_", rownames(mut_amp),sep="")
-  #rownames(mut_del) <- paste("mut_del_", rownames(mut_del),sep="")
-  
-  #A <- rbind(amp.m, del.m, mutM.m, mut_amp, mut_del)
-  #A <- A[rowSums(A) > 2,]
   A
 }
 

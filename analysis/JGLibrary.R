@@ -1,3 +1,54 @@
+##############
+# semi-supervised implementation of elastic net: Mark Culp "On The Semi-Supervised Joint Trained Elastic Net"
+
+jointTrainingElasticNet <- function(Xl, Xu, y, Xv=list(), alphas=.1, gammas=0,lambda.min=TRUE,scale=TRUE,compare.regularEN=FALSE){
+  require(glmnet)
+
+  Nu <- nrow(Xu)
+  
+  if(scale){
+    Xl <- scale(Xl)
+    Xu <- scale(Xu)
+    Xv <- lapply(Xv, function(x) scale(x))
+  }
+  y_c <- c(y - mean(y), rep(0, Nu))
+  #browser()
+  pc <- svd(Xu)
+  tmp <- t(pc$u) %*% Xu
+  
+  R <- vector(mode = "list", length = length(gammas) * length(alphas) + 1)
+  
+  for(i in seq_along(gammas)){
+    gamma <- gammas[i]
+    if(gamma == 0){
+      P <- rep(0, Nu)
+    }else{
+      P <- 1 / sqrt(pc$d^2 / gamma + 1)
+    }
+    Xu_g <- diag(P) %*% tmp 
+    X <- rbind(Xl, Xu_g)
+    for(j in seq_along(alphas)){
+      alpha <- alphas[j]
+      cv <- cv.glmnet(X,y_c,alpha=alpha,nfolds=5,standardize=FALSE)
+      lambda <- ifelse(lambda.min, cv$lambda.min, cv$lambda.1se)
+      fit <- glmnet(X,y_c,alpha=alpha,lambda=lambda,standardize=FALSE)
+      yhats <- lapply(Xv, function(x){ predict(fit, x) })
+      idx <- length(gammas) * (j-1) + i
+      R[[idx]] <- list(alpha=alpha,gamma=gamma,lambda=lambda,yhats=yhats)
+    }
+  }
+  
+  if(compare.regularEN){
+    cv <- cv.glmnet(Xl,y-mean(y),alpha=.1,nfolds=5)
+    lambda <- ifelse(lambda.min, cv$lambda.min, cv$lambda.1se)
+    fit <- glmnet(Xl,y-mean(y),alpha=.1,lambda=lambda)
+    R[[length(R)]] <- list(yhats=lapply(Xv, function(x){ predict(fit, x) }))
+  }
+  
+  R
+}
+
+
 groupMatch <- function(...){
   args <- list(...)
   if(length(args) == 1 && is.list(args[[1]])){
@@ -111,6 +162,3 @@ fastLMNestedModelComparison <- function(y, model_matrix_1, model_matrix_2){
     return (pf(F, p1-p2,n1-p1,lower.tail=FALSE))
   }
 }
-
-
-

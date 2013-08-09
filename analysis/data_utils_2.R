@@ -11,7 +11,7 @@ library("org.Hs.eg.db")
 
 
 getSangerMut <- function(){
-  tbl <- read.table("data~/sanger_cellline_mutation_data.txt",sep="\t",header=T, as.is=T, quote="",fill=T)
+  tbl <- read.table("~/projects/h3/data~/sanger_cellline_mutation_data.txt",sep="\t",header=T, as.is=T, quote="",fill=T)
   foo <- t(apply(tbl, 1, function(x){
     apply(cbind(x),1, function(tmp){
       strsplit(tmp,"::")[[1]][1]
@@ -239,6 +239,8 @@ getTissueType <- function(dat){
   cn <- dat
   if(is.matrix(dat)){
     cn <- colnames(dat)
+  }else if(class(dat) == "ExpressionSet"){
+    cn <- sampleNames(dat)
   }
   if(!is.vector(cn)) stop("Expected vector")
   gsub(".*?_(.*)","\\1", cn, perl=TRUE)

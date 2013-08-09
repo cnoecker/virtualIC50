@@ -1,4 +1,17 @@
 
+mafDir="/home/jguinney/data/tcga_mafs/"
+mafFiles <- list(
+                 #blca="BLCA-28-original.aggregated.tcga.somatic.maf",
+                 #kirc="BI_and_BCM_1.4.aggregated.tcga.somatic.maf",
+                 #gbm="gbm_liftover.aggregated.capture.tcga.uuid.somatic.maf", 
+                 #laml="genome.wustl.edu_LAML.IlluminaGA_DNASeq.Level_2.2.12.0.somatic.maf",
+                 #ucec="UCEC_somatic.maf",
+                 #prad="PR-TCGA-Analysis_set.aggregated.tcga.somatic.maf",
+                 skcm="TCGA_SKCM_266_PAIR.aggregated.capture.tcga.uuid.somatic.maf",
+                 #lusc="LUSC_Paper_v8.aggregated.tcga.somatic.maf",
+                 luad="PR_TCGA_LUAD_PAIR_Capture_All_Pairs_QCPASS.aggregated.capture.tcga.uuid.somatic.maf"
+                 #brca="genome.wustl.edu_BRCA.IlluminaGA_DNASeq.Level_2.5.3.0.somatic.maf")
+)
 buildMutationMatrixFromPANCAN <- function(tumorType, cancer.genes=TRUE, missenseFilter=TRUE){
   
   if(class(missenseFilter)=="list"){
@@ -9,9 +22,13 @@ buildMutationMatrixFromPANCAN <- function(tumorType, cancer.genes=TRUE, missense
     cosmicProteinPositions <- processCosmicMutationFile()
     cat("done\n")
   }
-  e <- loadEntity("syn1710680")
-  mafFile <- paste(e$cacheDir,"/somatic_mafs_cleaned/",tumorType,"_cleaned.maf",sep="")
-  tbl <- read.table(mafFile,header=T,as.is=T,quote="",comment="",sep="\t")
+  if(tumorType %in% names(mafFiles)){
+    mafFile <- paste(mafDir,mafFiles[[tumorType]],sep="")
+  }else{
+    e <- loadEntity("syn1710680")
+    mafFile <- paste(e$cacheDir,"/somatic_mafs_cleaned/",tumorType,"_cleaned.maf",sep="")
+  }
+  tbl <- read.table(mafFile,header=T,as.is=T,quote="",comment="#",sep="\t")
   
   pat.ids <- patient.ids(gsub("-",".",tbl$Tumor_Sample_Barcode))
   tbl$pat.ids <- pat.ids
@@ -25,8 +42,10 @@ buildMutationMatrixFromPANCAN <- function(tumorType, cancer.genes=TRUE, missense
   }
   
   filter.mask <- tbl$Variant_Classification %in% c("Frame_Shift_Del","Frame_Shift_Ins","Missense_Mutation","Nonsense_Mutation") & tbl$Hugo_Symbol %in% genes
-  
-  filtered.tbl <- tbl[filter.mask,c("Tumor_Sample_Barcode","pat.ids","Hugo_Symbol","Variant_Classification","amino_acid_change")]
+  tblheader <- colnames(tbl)
+  aachange <- ifelse("Protein_Change" %in% tblheader,"Protein_Change",
+                     tblheader[grep("amino_acid_change", tblheader)])
+  filtered.tbl <- tbl[filter.mask,c("Tumor_Sample_Barcode","pat.ids","Hugo_Symbol","Variant_Classification",aachange)]
   mafGenes <- sort(unique(filtered.tbl$Hugo_Symbol))
   genes <- intersect(mafGenes, genes)
   samples <- sort(unique(filtered.tbl$pat.ids))
@@ -47,7 +66,7 @@ buildMutationMatrixFromPANCAN <- function(tumorType, cancer.genes=TRUE, missense
       y <- runsum(x, 9)
       
       missense.mask <- filteredMAFByGene$Variant_Classification == "Missense_Mutation"
-      aa_pos <- as.numeric(gsub("p\\.\\w(\\d+).*","\\1",filteredMAFByGene[missense.mask,"amino_acid_change"])) - 4
+      aa_pos <- as.numeric(gsub("p\\.\\w(\\d+).*","\\1",filteredMAFByGene[missense.mask,aachange])) - 4
       aa_pos[aa_pos < 1] <- 1
       tmpmask <- rep(TRUE, sum(missense.mask))
       tmpmask[aa_pos > length(y)] <- FALSE
@@ -61,7 +80,7 @@ buildMutationMatrixFromPANCAN <- function(tumorType, cancer.genes=TRUE, missense
     
     if(nrow(filteredMAFByGene) > 0){
       M[i,] <- unlist(oneToManyOperation(samples,filteredMAFByGene$pat.ids, function(idxs){
-        ifelse(is.null(idxs),"",paste(sort(unique(filteredMAFByGene[idxs,"amino_acid_change"])),collapse=";"))
+        ifelse(is.null(idxs),"",paste(sort(unique(filteredMAFByGene[idxs,aachange])),collapse=";"))
       }))
     }
   }

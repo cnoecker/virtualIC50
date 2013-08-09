@@ -1,6 +1,46 @@
 ##############
 # semi-supervised implementation of elastic net: Mark Culp "On The Semi-Supervised Joint Trained Elastic Net"
 
+bootstrappedJointTrainingElasticNet <- function(Xl, Xu, y, Xv=list(), alphas=.1, gamma=1,lambda.min=TRUE,scale=TRUE,numbootstraps=10,ncores=0){
+  require(glmnet)
+  
+  Nu <- nrow(Xu)
+  
+  if(scale){
+    Xl <- scale(Xl)
+    Xu <- scale(Xu)
+    Xv <- lapply(Xv, function(x) scale(x))
+  }
+  y_c <- c(y - mean(y), rep(0, Nu))
+  
+  
+  if(gamma == 1){
+    Xu_g <- Xu
+  }else{
+    pc <- svd(Xu)
+    tmp <- t(pc$u) %*% Xu
+    P <- 1 / sqrt(pc$d^2 / gamma + 1)
+    Xu_g <- diag(P) %*% tmp 
+  }
+  N <- nrow(Xl)
+  fits <- mclapply(1:numbootstraps, function(i){
+    idxs <- sample(N,replace=TRUE)
+    X <- rbind(Xl[idxs,], Xu_g)
+    y_c <- c(y[idxs] - mean(y[idxs]), rep(0, Nu))
+    cv <- cv.glmnet(X,y_c,alpha=alpha,nfolds=5,standardize=FALSE)
+    lambda <- ifelse(lambda.min, cv$lambda.min, cv$lambda.1se)
+    fit <- glmnet(X,y_c,alpha=alpha,lambda=lambda,standardize=FALSE)
+    fit 
+  },mc.cores=ncores,mc.set.seed=TRUE,mc.preschedule=FALSE)
+  
+  yhats <- lapply(Xv, function(x){ 
+    preds <- sapply(fits, function(fit) predict(fit, x) )
+    rowMeans(preds)
+  })
+  
+  return(yhats)
+}
+
 jointTrainingElasticNet <- function(Xl, Xu, y, Xv=list(), alphas=.1, gammas=0,lambda.min=TRUE,scale=TRUE,compare.regularEN=FALSE){
   require(glmnet)
 

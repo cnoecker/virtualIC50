@@ -210,6 +210,8 @@ virtual_ic50 <- function(cellLineEset, drugName, testExprs, seed=2013, reverseDr
   }                 
 }
 
+
+
 build_feature_matrix <- function(tcga.dat,min.count=3,hammingDistanceThreshold=1,with.rppa=FALSE){
   
   driver.genes.vogel <- read.table("resources/vogelstein_driver_genes.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]

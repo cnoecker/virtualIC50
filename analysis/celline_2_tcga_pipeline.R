@@ -216,8 +216,9 @@ build_feature_matrix <- function(tcga.dat,min.count=3,hammingDistanceThreshold=1
   
   driver.genes.vogel <- read.table("resources/vogelstein_driver_genes.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]
   driver.genes.cosmic <- read.table("resources/cancer_gene_census.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]
+  driver.genes.nki  <- read.csv(file="/external-data/DAT_108__MEK_NKI/2013_05/MEK_screens_SAGE/results_cell lines/sw480/ut_azd/A=ut B=azd.csv",header=TRUE)$GeneSymbol
          
-  driver.genes <- union(driver.genes.vogel, driver.genes.cosmic)
+  driver.genes <- union(union(driver.genes.vogel, driver.genes.cosmic), driver.genes.nki)
   
   if(with.rppa){
     idxs <- groupMatch(colnames(tcga.dat$mut), colnames(tcga.dat$gistic), colnames(tcga.dat$rppa))
@@ -390,7 +391,7 @@ find_drug_features <- function(drugvec,
                     noEvents=abberationCount,
                     freqEvents=abberationCount/N,
                     pvals=pvals[idxs])
-  return (list(df=tmp,N=N,metric=c(rho=rho,auc=perf),fdr=fdr,dataMatrix=A,fits=lapply(fits, function(x) x$fit)))
+  return (list(df=tmp,N=N,metric=c(rho=rho,auc=perf),fdr=fdr,dataMatrix=A,vds=drugvec,fits=lapply(fits, function(x) x$fit)))
 }
 
 
@@ -489,7 +490,7 @@ ccleModelApply <- function(fgf, drugVector){
 #   }
 # }
 
-plot_features_2 <- function(F,title,effectPlot=FALSE,top=25,text.cex=.7,bubble.cex=1.5){
+plot_features_2 <- function(F,title,effectPlot=FALSE,top=25,text.cex=.6,bubble.cex=1.5){
   DF <- F$df[1:top,]
   N <- nrow(DF)
   sz <- DF$freqEvents * 20
@@ -552,41 +553,32 @@ plot_features_3 <- function(F,title,top=25,text.cex=.7,bubble.cex=1.5){
   DF$pvals[DF$pvals < 10^-20] <- 10^-20
   
   y <- DF$freqCounts + runif(length(DF$freqCounts), 0, .05) -.05
-  x <- DF$effect
+  x <- DF$effect / sum(abs(DF$effect))
+  x_max <- max(abs(x))
   par(mar=c(5,5, 2,15))
   plot(x, y,pch=pch,col=col,cex=sqrt(sz) * bubble.cex,
        ylim=c(0,1),
+       xlim=c(-x_max, x_max),
        #yaxt="n",
        xlab="Effect size",
        ylab="Importance score\n(# times selected / 100 bootstraps)",main=title)
-  abline(v=0)
-  #mtext(paste("n=",num.samples,sep=""),3)
-  #at.axis <- seq(0, max(y)+1,by=3)
-  #axis.lbl <- parse(text=paste("10^-",at.axis,sep=""))
-  #axis(side=2, at=at.axis,labels=axis.lbl,las=2)
+  abline(v=0,lty=2)
   par(xpd=TRUE)
   
-  text.col <- c("dodgerblue4","black","firebrick")[cut(DF$posFreq,breaks=c(0,.3,.7,1),include.lowest=TRUE)]
-  assocText <- c("neg","?","pos")[cut(DF$posFreq,breaks=c(0,.3,.7,1),include.lowest=TRUE)]
-  freqText <- paste(format(DF$noEvents/F$N * 100,digits=1,justify="right",width=3),"%",sep="")
-  #browser()
+  text.col <- c("dodgerblue4","firebrick")[ifelse(x<0,1,2)]
+  traitLbls <- as.character(DF$genes)
   tmp <- legend(par()$usr[2],par()$usr[4],
-                legend=as.character(DF$genes),
+                legend=traitLbls,
                 pch=21,pt.bg=col,cex=text.cex,xjust=0,text.col=text.col,bty="n",
-                title="Aberration",title.col="black")
+                title="Molecular trait",title.col="black")
   
   for(i in 1:N){
     x.line <- tmp$rect$left + (tmp$text$x[i] - tmp$rect$left)/2
     lines(x=c(x.line,x[i]),y=c(tmp$text$y[i],y[i]),lwd=.5,col=col[i])
   }
-  #browser()
-  tmp2 <- legend(par()$usr[2]+.03 +tmp$rect$w, y=par()$usr[4], 
-                 legend=freqText, cex=text.cex,xjust=0,text.col=text.col,bty="n",
-                 title="Freq.",title.col="black")
+  #points(1:5, y = rep(1,5), pch=19,cex=sqrt(c(.01, .05, .1, .2, .5) * 20) * bubble.cex,
+       col="blue",type="p",yaxt="n",xaxt="n",xlab="",ylab="")
   
-  #tmp3 <- legend(par()$usr[2]+.03 + tmp$rect$w + tmp2$rect$w, y=par()$usr[4], 
-  #               legend=assocText, cex=text.cex,xjust=0,text.col=text.col,bty="n",
-  #               title="Assoc.",title.col="black")
 }
 
 falsediscovery_plot <- function(df){

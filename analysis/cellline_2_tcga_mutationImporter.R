@@ -9,7 +9,8 @@ mafFiles <- list(
                  #prad="PR-TCGA-Analysis_set.aggregated.tcga.somatic.maf",
                  skcm="TCGA_SKCM_266_PAIR.aggregated.capture.tcga.uuid.somatic.maf",
                  #lusc="LUSC_Paper_v8.aggregated.tcga.somatic.maf",
-                 luad="PR_TCGA_LUAD_PAIR_Capture_All_Pairs_QCPASS.aggregated.capture.tcga.uuid.somatic.maf"
+                 luad="PR_TCGA_LUAD_PAIR_Capture_All_Pairs_QCPASS.aggregated.capture.tcga.uuid.somatic.maf",
+                 stad="PR_TCGA_STAD_PAIR_Capture_All_Pairs_QCPASS_v4.aggregated.capture.tcga.uuid.somatic.maf"
                  #brca="genome.wustl.edu_BRCA.IlluminaGA_DNASeq.Level_2.5.3.0.somatic.maf")
 )
 buildMutationMatrixFromPANCAN <- function(tumorType, cancer.genes=TRUE, missenseFilter=TRUE){

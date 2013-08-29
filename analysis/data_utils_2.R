@@ -7,7 +7,7 @@ synapseLoginFlag="SYN_LOGIN_FLAG"
 library("synapseClient")
 library("Biobase")
 library("affxparser")
-library("org.Hs.eg.db")
+#library("org.Hs.eg.db")
 
 
 getSangerMut <- function(){
@@ -98,6 +98,11 @@ getCCLEPharma_MetaGenomics <- function(){
   getPharma_MetaGenomics('syn1412540')
 }
 
+getSangerCNV <- function(){
+  e <- loadEntity("syn1742880")
+  return(e$objects[[1]])
+}
+
 getSangerPharma_MetaGenomics <- function(){
   #getPharma_MetaGenomics('syn1412515')
   sanger.drug <-  pData(loadEntity("syn220680")$objects$adf_drug)
@@ -150,6 +155,7 @@ getCCLEExpr_MetaGenomics <- function(){
 }
 
 getExpr <- function(mapId, dataId){
+  require("org.Hs.eg.db")
   cellLines <- loadEntity('syn1417611')$objects$cellLines
   
   # Load the various data matrices

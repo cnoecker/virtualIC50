@@ -86,8 +86,8 @@ build.tcga.ds <- function(geneExprId, rppaId=NULL, gisticId=NULL, cbioPrefix, is
 
 ####################################
 
-virtual_ic50 <- function(cellLineEset, drugName, testExprs, seed=2013, reverseDrug=FALSE,perf.eval=TRUE,
-                         num.bootstraps=20,ncores=5, diseaseUpweight=NULL, diseaseOffset=FALSE,alpha=.1){
+virtual_ic50 <- function(cellLineEset, drugName, testExprs, seed=2013, reverseDrug=FALSE,perf.eval=TRUE,perfPlot=FALSE,
+                         num.bootstraps=20,ncores=5,alpha=.1){
   #browser()
   if(!is.list(testExprs)){
     testExprs <- list(testExprs)
@@ -115,26 +115,12 @@ virtual_ic50 <- function(cellLineEset, drugName, testExprs, seed=2013, reverseDr
   X <- exprs(CL.m[,has_drug_mask])
   y = drug_vec[has_drug_mask]
   tissueTypes <- getTissueType(cellLineEset)[has_drug_mask]
-  penalty <- rep(1, nrow(X))
-  if(diseaseOffset){
-    mm <- model.matrix(~ -1 + factor(tissueTypes))
-    X <- rbind(X, t(mm))
-    penalty <- c(penalty, rep(0, ncol(mm)))
-  }
-  
-  obsWeights <- rep(1, length(y))
-  if(!is.null(diseaseUpweight)){
-    diseaseMask <- tissueTypes %in% diseaseUpweight
-    if(sum(diseaseMask) == 0){ stop(paste("'",diseaseUpweight, "' not a valid disease",sep=""))}
-    # weight disease specific to have 1/3 of all weight
-    obsWeights[!diseaseMask] <- 1 * sum(diseaseMask) / sum(!diseaseMask)
-  }
-  #browser()
-  cv <- cv.glmnet(t(X),y,alpha=alpha,nfolds=5,weights=obsWeights,penalty.factor=penalty)
+ 
+  cv <- cv.glmnet(t(X),y,alpha=alpha,nfolds=5)
   fits <- mclapply(1:num.bootstraps, function(i){
     N <- length(y)
     idxs <- sample(N,replace=TRUE)
-    fit <- glmnet(t(X[,idxs]),y[idxs],alpha=alpha,lambda=cv$lambda.min, weights=obsWeights[idxs], penalty.factor=penalty)
+    fit <- glmnet(t(X[,idxs]),y[idxs],alpha=alpha,lambda=cv$lambda.min)
     y_hat <- rep(NA, N)
     y_hat[-idxs] <- predict(fit, t(X[,-idxs]))
     
@@ -158,8 +144,8 @@ virtual_ic50 <- function(cellLineEset, drugName, testExprs, seed=2013, reverseDr
     ttTbl <- table(tt)
     diseaseTests <- c("ALL",names(ttTbl)[ttTbl >= 10])
     
-   
-    par(mfrow=c(ceiling(length(diseaseTests) / 5),5))
+    if(perfPlot){ par(mfrow=c(ceiling(length(diseaseTests) / 5),5)) }
+    
     for(disease in diseaseTests){
       if(disease == "ALL"){
         diseaseMask <- rep(TRUE, length(y))
@@ -167,17 +153,29 @@ virtual_ic50 <- function(cellLineEset, drugName, testExprs, seed=2013, reverseDr
         diseaseMask <- tt %in% disease
       }
       
-      cat(disease,"\n")
+      #cat(disease,"\n")
       yDisease <- y[diseaseMask]
       yDiseaseMean <- Ymean[diseaseMask]
       q <- quantile(yDisease, c(.40, .60))
       mask <- yDisease <= q[1] | yDisease >= q[2]
-      #browser()
+      
       pred <- prediction(yDiseaseMean[mask], factor(yDisease[mask] >= q[2]))
       perf <- performance(pred, 'auc')@y.values[[1]]
-      perfList[[disease]] <- perf
-      plot(performance(pred, 'tpr','fpr'),main=paste(disease," (n=",length(yDisease),")",sep=""),cex=.8)
-      text(.4, .4, labels=paste("AUC=",format(perf,digits=2),sep=""),cex=.5,pos=4)
+      
+      pred <- prediction(yDiseaseMean[mask], factor(yDisease[mask] >= q[2]))
+      auc <- performance(pred, 'auc')@y.values[[1]]
+      quant_80 <- yDisease > quantile(yDisease, .80)
+      ppv <- sum((yDiseaseMean > quantile(yDiseaseMean, .80)) & quant_80) / sum(quant_80)
+      quant_20 <- yDisease < quantile(yDisease, .20)
+      npv <- sum((yDiseaseMean < quantile(yDiseaseMean, .20)) & quant_20) / sum(quant_20)
+      
+      rho <- cor.test(yDisease, yDiseaseMean, method="spearman")
+      perfList[[disease]] <- list(auc=auc,rho=rho,npv=npv,ppv=ppv)
+    
+      if(perfPlot){
+        plot(performance(pred, 'tpr','fpr'),main=paste(disease," (n=",length(yDisease),")",sep=""),cex=.8)
+        text(.4, .4, labels=paste("AUC=",format(perf,digits=2),sep=""),cex=.5,pos=4)
+      }
     }
   }
   ###########
@@ -187,11 +185,6 @@ virtual_ic50 <- function(cellLineEset, drugName, testExprs, seed=2013, reverseDr
   
   y_hats <- lapply(testExprs, function(geneExpr){
     geneExpr.scaled <- normalize_to_X(m, sd, geneExpr)
-    if(diseaseOffset){
-      lvls <- levels(factor(tissueTypes))
-      mm <- matrix(0, nrow=length(lvls), ncol=ncol(geneExpr), dimnames=list(lvls, colnames(geneExpr)))
-      geneExpr.scaled <- rbind(geneExpr.scaled, mm)
-    }
   
     y_hats <- sapply(fits, function(x){
       predict(x$fit, t(geneExpr.scaled))
@@ -203,22 +196,23 @@ virtual_ic50 <- function(cellLineEset, drugName, testExprs, seed=2013, reverseDr
     names(y_sd) <- colnames(geneExpr)
     return (list(y_mean=y_mean, y_sd=y_sd))
   })
-  if(length(y_hats)==1){
-    return(list(yhat=y_hats[[1]]$y_mean,y_sd = y_hats[[1]]$y_sd, perf=perfList))
-  }else{
-    return (list(yhat=y_hats,perf=perfList))
-  }                 
+  
+  return (list(yhat=y_hats,perf=perfList))                 
 }
 
 
-
-build_feature_matrix <- function(tcga.dat,min.count=3,hammingDistanceThreshold=1,with.rppa=FALSE){
-  
+getOncoGenes <- function(){
   driver.genes.vogel <- read.table("resources/vogelstein_driver_genes.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]
   driver.genes.cosmic <- read.table("resources/cancer_gene_census.txt",sep="\t",header=T,quote="",comment="",as.is=T)[,1]
   driver.genes.nki  <- read.csv(file="/external-data/DAT_108__MEK_NKI/2013_05/MEK_screens_SAGE/results_cell lines/sw480/ut_azd/A=ut B=azd.csv",header=TRUE)$GeneSymbol
-         
+  
   driver.genes <- union(union(driver.genes.vogel, driver.genes.cosmic), driver.genes.nki)
+  driver.genes
+}
+
+build_feature_matrix <- function(tcga.dat,min.count=3,hammingDistanceThreshold=1,with.rppa=FALSE){
+  
+  driver.genes <- getOncoGenes()
   
   if(with.rppa){
     idxs <- groupMatch(colnames(tcga.dat$mut), colnames(tcga.dat$gistic), colnames(tcga.dat$rppa))
@@ -295,13 +289,24 @@ find_drug_features <- function(drugvec,
                                beta_threshold=10^-3,
                                num.bootstraps=50,
                                method="lasso",
-                               ncores=5){
+                               ncores=5,
+                               make.plot=FALSE, outlier.sd=2.5){
   
   #####
  # browser()
   idxs <- groupMatch(names(drugvec), colnames(featureMat))
-  y_hat.m <- drugvec[idxs[[1]]]
+  y_hat.m <- scale(drugvec[idxs[[1]]])
   A <- featureMat[, idxs[[2]]]
+ 
+  ## robust regression: detect and remove outliers
+  is.outlier <- abs(y_hat.m) > outlier.sd
+  n.outliers <- sum(is.outlier)
+  if(n.outliers > 0){
+    cat("Detected", n.outliers, "outliers. Removing...\n")
+    y_hat.m <- y_hat.m[!is.outlier]
+    A <- A[, !is.outlier]
+  }
+  
   N <- length(y_hat.m)
   cat("Number samples = ", N,"\n")
   cat("Number features = ", nrow(A),"\n")
@@ -327,21 +332,6 @@ find_drug_features <- function(drugvec,
     list(fit=fit,y_hat=y_hat)
   },mc.cores=min(num.bootstraps,ncores),mc.set.seed=TRUE,mc.preschedule=FALSE)
   
-  #############################
-  #### random features
-  lambda <- cv.glmnet(t(A), y_hat.m, alpha=.9,nfolds=5)$lambda.min
-  R <- A
-  rownames(R) <- paste("rand_",rownames(A),sep="")
- 
-  foo <- sapply(1:100, function(i){
-    X <- t(rbind(A, R[, sample(N)]))
-    fit <- glmnet(X, y_hat.m, lambda=lambda,alpha=.9)
-    rand_mask <- grepl("^rand_", colnames(X))
-    noRand <- sum(abs(as.numeric(fit$beta))[rand_mask] > beta_threshold)
-    noObs <- sum(abs(as.numeric(fit$beta))[!rand_mask] > beta_threshold)
-    (noRand + 1) / (noObs + noRand + 1)
-  })
-  fdr <- exp(mean(log(foo)))
   
   #############################
   ## performance assessment
@@ -361,10 +351,12 @@ find_drug_features <- function(drugvec,
   pred <- prediction(Ymean[mask], factor(y_hat.m[mask] >= q[2]))
   perf <- performance(pred, 'auc')@y.values[[1]]
   rho <- cor(Ymean, y_hat.m,method="spearman")
-  par(mfrow=c(1,1))
-  plot(performance(pred, 'tpr','fpr'))
-  text(.4, .4, labels=paste("AUC=",format(perf,digits=2),sep=""),cex=.7,pos=4)
-  text(.4, .3, labels=paste("R=",format(rho,digits=2),sep=""),cex=.7,pos=4)
+  if(make.plot){
+    par(mfrow=c(1,1))
+    plot(performance(pred, 'tpr','fpr'))
+    text(.4, .4, labels=paste("AUC=",format(perf,digits=2),sep=""),cex=.7,pos=4)
+    text(.4, .3, labels=paste("R=",format(rho,digits=2),sep=""),cex=.7,pos=4)
+  }
   
   ##########
   
@@ -391,154 +383,11 @@ find_drug_features <- function(drugvec,
                     noEvents=abberationCount,
                     freqEvents=abberationCount/N,
                     pvals=pvals[idxs])
-  return (list(df=tmp,N=N,metric=c(rho=rho,auc=perf),fdr=fdr,dataMatrix=A,vds=drugvec,fits=lapply(fits, function(x) x$fit)))
+  return (list(df=tmp,N=N,metric=c(rho=rho,auc=perf),outliers=which(is.outlier),
+               dataMatrix=A,vds=drugvec,fits=lapply(fits, function(x) x$fit)))
 }
 
 
-getCBIO_CCLECalls <- function(genes){
-  mycgds = CGDS("http://www.cbioportal.org/public-portal/")
-  ccle_muts <- getProfileData(mycgds, genes, "ccle_broad_mutations","ccle_broad_complete")
-  tmp <- as.matrix(data.frame(lapply(ccle_muts, as.character), stringsAsFactors=FALSE))
-  tmp[tmp=="NaN"] = NA
-  mutM <- matrix(!is.na(tmp),nrow=nrow(tmp),dimnames=dimnames(ccle_muts))
-  ccle_cna <- getProfileData(mycgds, genes, "ccle_broad_CNA","ccle_broad_complete")
-  return (list(muts=mutM, cna=ccle_cna))
-}
-
-
-ccleModelApply <- function(fgf, drugVector){
-  genes <- gsub(".*_(.*)$", "\\1",rownames(fgf$dataMatrix))
-  aberrationType <- gsub("(.*)_.*$", "\\1",rownames(fgf$dataMatrix))
-  amp <- grepl("amp",aberrationType)
-  del <- grepl("del",aberrationType)
-  mut <- grepl("mut",aberrationType)
-  
-  cbio_ccle <- getCBIO_CCLECalls(unique(genes))
-  
-  idxs <- groupMatch(rownames(drugVector), rownames(cbio_ccle$cna), rownames(cbio_ccle$mut))
-  drugVector.m <- drugVector[idxs[[1]],,drop=FALSE]
-  cna.m <- cbio_ccle$cna[idxs[[2]],]
-  mut.m <- cbio_ccle$mut[idxs[[3]],]
-  
-  na.mask <- apply(cna.m, 2, function(x) all(is.na(x)))
-  cna.m <- cna.m[, !na.mask]
-  
-  DM <- matrix(0, nrow=nrow(fgf$dataMatrix), ncol=nrow(drugVector.m), 
-               dimnames=list(rownames(fgf$dataMatrix), rownames(drugVector.m)))
-  for(i in 1:length(genes)){
-    gene <- genes[i]
-    if(amp[i] & gene %in% colnames(cna.m)){
-      DM[i,] <- as.numeric(DM[i, ] | cna.m[,gene] == 2)
-    }
-    if(del[i] & gene %in% colnames(cna.m)){
-      DM[i,] <- as.numeric(DM[i, ] | cna.m[,gene] == -2)
-    }
-    if(mut[i] & gene %in% colnames(mut.m)){
-      DM[i,] <- as.numeric(DM[i, ] | mut.m[,gene])
-    }
-  }
-  
-  yhat <- rowMeans(sapply(fgf$fits, function(fit) predict(fit, t(DM))))
-  cor.test(yhat, drugVector.m[,1],method="spearman")
-}
-
-# getCBIOMutationCalls <- function(cbioPrefix, batchSize=500){
-#   
-#   mycgds = CGDS("http://www.cbioportal.org/public-portal/")
-#   
-#   cancer_genes <- read.table("./resources/cbio_cancer_genes.txt",sep="\t",header=T,as.is=T,quote="")$Gene.Symbol
-#   cancer_genes <- cancer_genes[cancer_genes != ""]
-#   N <- length(cancer_genes)
-#   ncalls <- as.integer(N / 500) + 1
-#   R <- do.call("cbind", lapply(1:ncalls, function(i){
-#     start <- (i-1) * batchSize + 1
-#     end <- min(start + batchSize - 1, N)
-#     getProfileData(mycgds,cancer_genes[start:end],paste(cbioPrefix,"_tcga_mutations",sep=""),paste(cbioPrefix,"_tcga_sequenced",sep=""))  
-#   }))
-#   tmp <- as.matrix(data.frame(lapply(R, as.character), stringsAsFactors=FALSE))
-#   tmp[tmp=="NaN"] = NA
-#   mutM <- t(matrix(!is.na(tmp),nrow=nrow(tmp),dimnames=dimnames(R)))
-#   mutM
-# }
-
-# plot_features <- function(F,drug, disease,top=25,text.cex=.7){
-#   DF <- F$df[1:top,]
-#   N <- nrow(DF)
-#   sz <- DF$freqEvents * 20
-#   pch <- rep(21,N)
-#   pch[is.na(sz)] <- 22
-#   sz[is.na(sz)] <- 1
-#   col <- apply(col2rgb(rainbow(N)), 2, function(x) {rgb(x[1]/255,x[2]/255,x[3]/255,.5)})
-#   
-#   DF$pvals[DF$pvals < 10^-20] <- 10^-20
-# 
-#   x <- DF$freqCounts + runif(length(DF$freqCounts), 0, .1) -.05
-#   y <- -log10(DF$pvals)
-#   par(mar=c(5,5, 2,15))
-#   plot(x, y,pch=pch,bg=col,cex=sz,xlim=c(min(x)-.1, max(x)+.1),ylim=c(0, max(y)+1),
-#        ylab="-log10(pval)",xlab="Freq of selection",main=paste(drug," in ", disease," (n=",F$N,")",sep=""))
-#   #mtext(paste("n=",num.samples,sep=""),3)
-#   par(xpd=TRUE)
-#   
-#   text.col <- c("blue","black","red")[cut(DF$posFreq,breaks=c(0,.3,.7,1),include.lowest=TRUE)]
-#   tmp <- legend(par()$usr[2]+.03,par()$usr[4],
-#                 legend=paste(DF$genes," (",format(DF$noEvents/F$N * 100,digits=1,trim=TRUE),"%)",sep=""),
-#                 pch=pch,pt.bg=col,cex=text.cex,xjust=0,text.col=text.col)
-#   for(i in 1:N){
-#     x.line <- tmp$rect$left + (tmp$text$x[i] - tmp$rect$left)/2
-#     lines(x=c(x.line,x[i]),y=c(tmp$text$y[i],y[i]),lwd=.5,col="gray")
-#   }
-# }
-
-plot_features_2 <- function(F,title,effectPlot=FALSE,top=25,text.cex=.6,bubble.cex=1.5){
-  DF <- F$df[1:top,]
-  N <- nrow(DF)
-  sz <- DF$freqEvents * 20
-  pch <- rep(19,N)
-  #pch[is.na(sz)] <- 19
-  sz[is.na(sz)] <- 1
-  col <- apply(col2rgb(rainbow(N)), 2, function(x) {rgb(x[1]/255,x[2]/255,x[3]/255,.5)})
-  #col <- col[sample(N)]
-  
-  DF$pvals[DF$pvals < 10^-20] <- 10^-20
-  
-  x <- DF$freqCounts + runif(length(DF$freqCounts), 0, .05) -.05
-  y <- -log10(DF$pvals)
-  par(mar=c(5,5, 2,15))
-  plot(x, y,pch=pch,col=col,cex=sqrt(sz) * bubble.cex,
-       xlim=c(0,1),
-       ylim=c(0, max(y)+1),
-       yaxt="n",
-       ylab="Univariate significance",
-       xlab="Importance score\n(# times selected / 100 bootstraps)",main=title)
-  #mtext(paste("n=",num.samples,sep=""),3)
-  at.axis <- seq(0, max(y)+1,by=3)
-  axis.lbl <- parse(text=paste("10^-",at.axis,sep=""))
-  axis(side=2, at=at.axis,labels=axis.lbl,las=2)
-  par(xpd=TRUE)
-  
-  text.col <- c("dodgerblue4","black","firebrick")[cut(DF$posFreq,breaks=c(0,.3,.7,1),include.lowest=TRUE)]
-  assocText <- c("neg","?","pos")[cut(DF$posFreq,breaks=c(0,.3,.7,1),include.lowest=TRUE)]
-  freqText <- paste(format(DF$noEvents/F$N * 100,digits=1,justify="right",width=3),"%",sep="")
-  #browser()
-  tmp <- legend(par()$usr[2]+.03,par()$usr[4],
-                legend=as.character(DF$genes),
-                pch=21,pt.bg=col,cex=text.cex,xjust=0,text.col=text.col,bty="n",
-                title="Aberration",title.col="black")
-  
-  for(i in 1:N){
-    x.line <- tmp$rect$left + (tmp$text$x[i] - tmp$rect$left)/2
-    lines(x=c(x.line,x[i]),y=c(tmp$text$y[i],y[i]),lwd=.5,col=col[i])
-  }
-  #browser()
-  tmp2 <- legend(par()$usr[2]+.03 +tmp$rect$w, y=par()$usr[4], 
-          legend=freqText, cex=text.cex,xjust=0,text.col=text.col,bty="n",
-          title="Freq.",title.col="black")
-  
-  tmp3 <- legend(par()$usr[2]+.03 + tmp$rect$w + tmp2$rect$w, y=par()$usr[4], 
-                 legend=assocText, cex=text.cex,xjust=0,text.col=text.col,bty="n",
-                 title="Assoc.",title.col="black")
-}
 
 plot_features_3 <- function(F,title,top=25,text.cex=.7,bubble.cex=1.5){
   DF <- F$df[1:top,]
@@ -555,20 +404,28 @@ plot_features_3 <- function(F,title,top=25,text.cex=.7,bubble.cex=1.5){
   y <- DF$freqCounts + runif(length(DF$freqCounts), 0, .05) -.05
   x <- DF$effect / sum(abs(DF$effect))
   x_max <- max(abs(x))
-  par(mar=c(5,5, 2,15))
+  
+  
+  traitLbls <- as.character(DF$genes)
+  legendLbls <- traitLbls
+  isLong <- sapply(traitLbls, nchar) > 20
+  legendLbls[isLong] <- paste("[Trait ", 1:sum(isLong), "]",sep="")
+  
+  
+  par(mar=c(5,5,1,15), oma=c(sum(isLong)+1, 1,0,0))
   plot(x, y,pch=pch,col=col,cex=sqrt(sz) * bubble.cex,
        ylim=c(0,1),
        xlim=c(-x_max, x_max),
        #yaxt="n",
-       xlab="Effect size",
-       ylab="Importance score\n(# times selected / 100 bootstraps)",main=title)
+       xlab="Effect magnitude",
+       ylab="Selection frequency\n(# times selected / 100 bootstraps)")
   abline(v=0,lty=2)
   par(xpd=TRUE)
   
-  text.col <- c("dodgerblue4","firebrick")[ifelse(x<0,1,2)]
-  traitLbls <- as.character(DF$genes)
+  text.col <- c("blue","red")[ifelse(x<0,1,2)]
+ 
   tmp <- legend(par()$usr[2],par()$usr[4],
-                legend=traitLbls,
+                legend=legendLbls,
                 pch=21,pt.bg=col,cex=text.cex,xjust=0,text.col=text.col,bty="n",
                 title="Molecular trait",title.col="black")
   
@@ -576,16 +433,29 @@ plot_features_3 <- function(F,title,top=25,text.cex=.7,bubble.cex=1.5){
     x.line <- tmp$rect$left + (tmp$text$x[i] - tmp$rect$left)/2
     lines(x=c(x.line,x[i]),y=c(tmp$text$y[i],y[i]),lwd=.5,col=col[i])
   }
-  #points(1:5, y = rep(1,5), pch=19,cex=sqrt(c(.01, .05, .1, .2, .5) * 20) * bubble.cex,
-       col="blue",type="p",yaxt="n",xaxt="n",xlab="",ylab="")
+  #browser()
+  if(sum(isLong) > 0){
+    for(i in 1:(sum(isLong))){
+      lbl <- paste("[Trait ", i,"]: ", traitLbls[isLong][i],sep="")
+      mtext(lbl, side=1, line=(i-1), adj=0.0, cex=text.cex, col="black", outer=TRUE)  
+    }  
+  }
+  #x1 <- par()$usr[1]
+  #x2 <- par()$usr[2]
+  #x <- seq(from=x1,to=(x1 + (x2-x1)*.5),length.out=5)
+  #x_pt <- rep(x1 + (x2-x1) * 24/25,3)
+  #bottom_legend = tmp$rect$top - tmp$rect$h - .05
+  y_pt = rep(.05,3)
+  #x_text <- tmp$rect$left
+  cex <- sqrt(c(.5, .2, .05) * 20) * bubble.cex
+  text_x <- -x_max + (x_max * .1)
+  text(x=text_x,y=y_pt,label=paste("Trait freq: 50, 20, 5%"),adj=0)
+  points(x=rep(-x_max,3),y=y_pt, pch=19,cex=cex,
+         col=c("black","red","white"),type="p",yaxt="n",xaxt="n",xlab="",ylab="")
   
-}
-
-falsediscovery_plot <- function(df){
-  N <- nrow(df)
-  is.rand <- grepl("^rand_", rownames(df))
-  cs <- cumsum(is.rand)
-  fdisc <- (cs / 1:N) * 2
+  text(-x_max/2, 1.0, "Resistant Traits",col="blue",font=4,cex=.8)
+  text(x_max/2, 1.0, "Sensitive Traits",col="red",font=4,cex=.8)
+  mtext(paste(title, " (n=",F$N,")",sep=""),side=3)
 }
 
 

@@ -703,9 +703,11 @@ output$drugname=renderUI({
   
   ##display Pathview image, stats, and data table when "Make path" button is selected
 output$pathwaymap=renderUI({
+  if(!is.null(pathway1)){
         list(imageOutput("pathway1",height="750px"),
         textOutput("fisherinfo"),
         tableOutput("fisherTable"))
+  }
 })
 
   #render pathway map image file

@@ -29,11 +29,12 @@ conditionalPanel(condition="input.tabset1=='Feature Details by Drug'|input.tabse
    #              actionButton("plotdrugs","Plot Drugs")),
 conditionalPanel(condition="input.tabset1=='Feature Details by Drug'",
                  selectInput("drugsort","Sort table by:",choices=c("Importance score"="freqcounts","Effect size"="beta","P-Value"="pval")),
-                 numericInput("num_drugs","Number of drugs to show in table (max 13 for paper results, 154 for all)",value=10,min=1,max=154),
-                 checkboxInput("paperonly","Show only newest results")),
+                 numericInput("num_drugs","Number of drugs to show in table (max 13 for paper results, 154 for all)",value=10,min=1,max=154)
+                 ),
+                 checkboxInput("paperonly","Show only newest results"),
 #This was never actually implemented - show results for drugs with same target
-conditionalPanel(condition="input.tabset1=='Feature Details by Cancer'",
-                 actionButton("reldrugs","See results for this gene for other related drugs")),
+#conditionalPanel(condition="input.tabset1=='Feature Details by Cancer'",
+#                 actionButton("reldrugs","See results for this gene for other related drugs")),
 
 ##KEGG pathway visualization
 conditionalPanel(condition="input.tabset1=='KEGG Pathway View'",
@@ -42,15 +43,10 @@ conditionalPanel(condition="input.tabset1=='KEGG Pathway View'",
                                   selectInput("keggid","Choose KEGG pathway from main cancer pathways to display",choices=keggpathways)
                                   ),
                  conditionalPanel(condition="input.keggmethod=='calc'",
-                                  #actionButton("topmapsinfo","Show Fisher exact test results for most enriched maps"),
                                 uiOutput("topmapchoices")),
                  selectInput("highlight","Highlight nodes based on:",choices=c("Model effect"="beta","Importance score"="freqcounts","Frequency in TCGA population"="freqevents")),
                  actionButton("makepath","Make and show Pathview")
-                 )
-
-                # actionButton("samegene","See results for other features in the same gene")
-#selectInput("gen","OR Choose a gene:",choices=genes)
-),
+                 )),
 mainPanel(
 tabsetPanel(
 tabPanel( "Model performance",
@@ -107,16 +103,16 @@ tabPanel("Feature Details by Drug",
          conditionalPanel(condition="input.cancer.indexOf('brca')!=-1",
                           h5("Breast invasive carcinoma"),
                           uiOutput("brcatables")),
-         conditionalPanel(condition="input.cancer.indexOf('brca.3neg'!=-1",
+         conditionalPanel(condition="input.cancer.indexOf('brca.3neg')!=-1",
                           h5("Triple negative breast cancer"),
                           uiOutput("brca.3negtables")),
-         conditionalPanel(condition="input.cancer.indexOf('brca.erpr'!=1",
+         conditionalPanel(condition="input.cancer.indexOf('brca.erpr')!=-1",
                           h5("ER/PR-positive breast cancer"),
                           uiOutput("brca.erprtables")),
-         conditionalPanel(condition="input.cancer.indexOf('brca.her2'!=1",
+         conditionalPanel(condition="input.cancer.indexOf('brca.her2')!=-1",
                           h5("HER2-positive breast cancer"),
                           uiOutput("brca.her2tables")),
-         conditionalPanel(condition="input.cancer.indexOf('stad'!=1",
+         conditionalPanel(condition="input.cancer.indexOf('stad')!=-1",
                           h5("Stomach adenocarcinoma"),
                           uiOutput("stadtables"))
          ),

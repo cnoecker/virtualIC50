@@ -4,6 +4,7 @@ library(reshape)
 
 shinyServer(function(input, output,clientData,session) {
   
+  ########## Select all and select none buttons
   observe({
       if(input$selectall)
       updateCheckboxGroupInput(session,inputId="cancer",choices=cancerscheck,selected=cancerlabels)
@@ -12,6 +13,9 @@ shinyServer(function(input, output,clientData,session) {
       updateCheckboxGroupInput(session,inputId="cancer",choices=cancerscheck)
   })
   
+  ############################ General reactive expressions and functions for accessing results
+  
+  ######## pull results for a given drug and cancer
   DrugCancer=function(x){
     results[[drugi()]][[x]]
   }
@@ -33,15 +37,15 @@ shinyServer(function(input, output,clientData,session) {
             grep(input$drug,sangerdrugs)+24}
   })
   
-  #Reactive drug choices
+  #Reactive drug choices - CCLE, Sanger, paper subset
   output$drugchoice=renderUI({
     choices=c()
     if(input$druggroup=="CCLE"){
-      if(any(input$cancer %in% papercancers[10:13]))
+      if(any(input$cancer %in% papercancers[10:13])|input$paperonly)
         choices=paperdrugs[paperdrugs %in% ccledrugs]
       else choices=ccledrugs
     } else if(input$druggroup=="Sanger"){
-      if(any(input$cancer %in% papercancers[10:13]))
+      if(any(input$cancer %in% papercancers[10:13])|input$paperonly)
         choices=paperdrugs[paperdrugs %in% sangerdrugs]
       else choices=sangerdrugs
     }
@@ -74,12 +78,9 @@ shinyServer(function(input, output,clientData,session) {
     if(input$druggroup=="CCLE") "all_2013_08_03/ccle_" else if(input$druggroup=="Sanger") "all_2013_06_21/sanger_"
   })
   
-  ##Performance metrics 
-#   output$auccelllines=renderText({
-#     if(!is.null(input$drug))
-#       paste("AUC for model of ",input$drug,"over all cell lines:",round(auc_allcelllines[drugi()],digits=4))
-#   })
-   
+  ########################## Performance metrics output for "Model Performance" tab
+  
+####### AUC and rho for each drug/cancer model
   output$perf=renderTable({
     if(numcanc()>0&!is.null(input$drug)){
       perftable=data.frame(Cancer=rep(NA,numcanc()),auc=rep(NA,numcanc()),rho=rep(NA,numcanc()),fdr=rep(NA,numcanc()),N=rep(NA,numcanc())) 
@@ -88,10 +89,12 @@ shinyServer(function(input, output,clientData,session) {
         perftable[i,]=c(input$cancer[i],round(DrugCancer(indices()[i])$metric[2],digits=4),
                         round(DrugCancer(indices()[i])$metric[1],digits=4),round(fdr,digits=4),DrugCancer(indices()[i])$N)
       }
+      if(input$paperonly) perftable=perftable[perftable[,1] %in% papercancers,]
       return(perftable)
     }
   },include.rownames=F,digits=c(0,4,4,4,4,0),align=rep("c",6))
 
+######### Metrics across all cell lines (from drug.rda vds$perf$ALL)
   output$perfall=renderUI({
     if(!is.null(input$drug)){
     if(input$drug %in% paperdrugs){
@@ -104,7 +107,8 @@ shinyServer(function(input, output,clientData,session) {
   output$perfalltab=renderTable({
     paperperftable[paperperftable$drug==input$drug,]
   },include.rownames=F,digits=c(0,3,3,3,3,3),align=rep("c",6))
-  
+
+########## Plots for paper drugs of performance in different cell lines
   output$allperfplot=renderUI({
     if(!is.null(input$drug))
     if(input$drug %in% paperdrugs)
@@ -116,26 +120,30 @@ shinyServer(function(input, output,clientData,session) {
     list(src=filename,width=500)
   },deleteFile=FALSE)
   
-  ##Performance plots
+####### Performance plots for individual drug/cancer models (from older results)
   imagefile=function(canceri){
     filename=normalizePath(file.path(paste('/gluster/home/jguinney/projects/virtualIC50/results/',filedate(),
                                            input$drug,'/',allcancers[canceri],'_perf.pdf',sep='')))
   return(filename)
   }
   
-  ####FOR MONDAY - what is happening?????
-  papercanc=reactive({
+  notpapercanc=reactive({
     if(!is.null(input$drug)&length(input$cancer)>0){
-      if(input$drug %in% paperdrugs){
-        papercanc=input$cancer[!input$cancer %in% papercancers]
-      } else papercanc=input$cancer
+      if(input$paperonly) notpapercanc=NULL
+    else if(input$drug %in% paperdrugs){
+        notpapercanc=input$cancer[!input$cancer %in% papercancers]
+      } else notpapercanc=input$cancer
     }
+  })
+  
+  featurecancers=reactive({
+    if(input$paperonly) return(input$cancer[input$cancer %in% papercancers]) else return(input$cancer)
   })
   
   output$cancerperfplots=renderUI({
     outputlistperf=list(NULL)
-    if(!is.null(input$drug)&length(papercanc())>0){
-    for(i in 1:length(papercanc())){
+    if(!is.null(input$drug)&length(notpapercanc())>0){
+    for(i in 1:length(notpapercanc())){
       outputlistperf[[2*i-1]]<-{
         cancername=paste("perf",i,sep="")
         textOutput(cancername)
@@ -149,46 +157,13 @@ shinyServer(function(input, output,clientData,session) {
     }
   })
 
-  for(k in 1:length(allcancers)){
-    local({
-      my_k=k
-      cancername=paste("perf",my_k,sep="")
-      output[[cancername]]=renderText({
-        cancerlabels[match(papercanc()[my_k],allcancers)]
-      })
-      plotname=paste("pplot",my_k,sep="")
-      output[[plotname]]<-renderImage({
-        list(src=imagefile(match(papercanc()[my_k],allcancers)),width=500)
-      },deleteFile=FALSE) 
-      
-      plotnamef=paste("fplot",my_k,sep="")
-      output[[plotnamef]]=renderImage({
-        canceri=match(input$cancer[my_k],allcancers)
-        list(src=fplotfile(canceri),width=700)
-      },deleteFile=F)
-      cancernamef=paste("feat",my_k,sep="")
-      output[[cancernamef]]=renderTable({
-        canceri=match(input$cancer[my_k],allcancers)
-        if((identical("Most important",input$all_subset)) & isTRUE(input$num_feat<length(features(match(input$drug,drugs2))[[1]][[canceri]])))
-          effects_tab(canceri)[1:input$num_feat,] else if (identical("All",input$all_subset)|input$num_feat>length(features(match(input$drug,drugs2))[[1]][[canceri]]))
-            effects_tab(canceri)
-      },digits=c(0,0,2,4,3,3,4),align=rep("c",7),include.rownames=F)
-    })
-  }
-
-  ##Load feature (bubble) plots
-  fplotfile=function(canceri){
-    if(!is.na(match(input$drug,paperdrugs))&!is.na(match(allcancers[canceri],papercancers))){
-      filename=normalizePath(file.path(paste('/gluster/home/jguinney/projects/virtualIC50/results/paper_2013_08_30/bubblePlots/',input$drug,'_',allcancers[canceri],'.pdf',sep='')))
-}else filename=normalizePath(file.path(paste('/gluster/home/jguinney/projects/virtualIC50/results/',filedate(),
-                                           input$drug,'/',allcancers[canceri],'.pdf',sep='')))
-    return(filename)
-  }
+  ################# Feature Summary tab - Load feature (bubble) plots
   
+  #variable number of plots and tables (depending on number of cancers selected)
   output$featuresummary=renderUI({
     outputlistfeat=list(NULL)
-    if(!is.null(input$drug)&length(input$cancer)>0){
-      for(i in 1:length(input$cancer)){
+    if(!is.null(input$drug)&length(featurecancers())>0){
+      for(i in 1:length(featurecancers())){
         outputlistfeat[[2*i-1]]<-{
           plotnamef=paste("fplot",i,sep="")
           imageOutput(plotnamef)
@@ -201,8 +176,17 @@ shinyServer(function(input, output,clientData,session) {
       do.call(tagList,outputlistfeat)
     }
   })
-    
-  ##Effects table function for 
+
+  #Get filename function
+  fplotfile=function(canceri){
+    if(!is.na(match(input$drug,paperdrugs))&!is.na(match(allcancers[canceri],papercancers))){
+      filename=normalizePath(file.path(paste('/gluster/home/jguinney/projects/virtualIC50/results/paper_2013_08_30/bubblePlots/',input$drug,'_',allcancers[canceri],'.pdf',sep='')))
+    }else filename=normalizePath(file.path(paste('/gluster/home/jguinney/projects/virtualIC50/results/',filedate(),
+                                                 input$drug,'/',allcancers[canceri],'.pdf',sep='')))
+    return(filename)
+  }
+  
+  ##Effects table function for displaying and sorting results of one drug/cancer model
   effects_tab=function(x){
     if(identical(input$druggroup,"CCLE")){
       effectsdf=data.frame(Feature=DrugCancer(x)$df[,1],posFreq=DrugCancer(x)$df[,3],effect=DrugCancer(x)$df[,4],CountsScore=DrugCancer(x)$df[,5],freqFeature=DrugCancer(x)$df[,7],pVal=DrugCancer(x)$df[,8])
@@ -223,17 +207,45 @@ shinyServer(function(input, output,clientData,session) {
                            pVal=DrugCancer(x)$df[,7])
       }
     }
-    if(identical(input$sortfeat,"freqcounts")) return(effectsdf[order(effectsdf[,4],decreasing=T),]) else
-      if(identical(input$sortfeat,"beta")) return(effectsdf[order(abs(effectsdf[,3]),decreasing=T),]) else
-        if(identical(input$sortfeat,"pval")) return(effectsdf[order(effectsdf[,6],decreasing=F),])
+   if(identical(input$sortfeat,"freqcounts")) return(effectsdf[order(effectsdf[,4],decreasing=T),]) else
+     if(identical(input$sortfeat,"beta")) return(effectsdf[order(abs(effectsdf[,3]),decreasing=T),]) else
+       if(identical(input$sortfeat,"pval")) return(effectsdf[order(effectsdf[,6],decreasing=F),])
   }
   
+  ####### Defining variable length output content for Model Performance and Feature Summary tabs
   
-output$drugname=renderUI({
+  for(k in 1:length(allcancers)){
+    local({
+      my_k=k
+      cancername=paste("perf",my_k,sep="")
+      output[[cancername]]=renderText({
+        cancerlabels[match(notpapercanc()[my_k],allcancers)]
+      })
+      plotname=paste("pplot",my_k,sep="")
+      output[[plotname]]<-renderImage({
+        list(src=imagefile(match(notpapercanc()[my_k],allcancers)),width=500)
+      },deleteFile=FALSE) 
+      
+      plotnamef=paste("fplot",my_k,sep="")
+      output[[plotnamef]]=renderImage({
+        canceri=match(featurecancers()[my_k],allcancers)
+        list(src=fplotfile(canceri),width=700)
+      },deleteFile=F)
+      cancernamef=paste("feat",my_k,sep="")
+      output[[cancernamef]]=renderTable({
+        canceri=match(featurecancers()[my_k],allcancers)
+        if((identical("Most important",input$all_subset)) & isTRUE(input$num_feat<length(features(match(input$drug,drugs2))[[1]][[canceri]])))
+          effects_tab(canceri)[1:input$num_feat,] else if (identical("All",input$all_subset)|input$num_feat>length(features(match(input$drug,drugs2))[[1]][[canceri]]))
+            effects_tab(canceri)
+      },digits=c(0,0,2,4,3,3,4),align=rep("c",7),include.rownames=F)
+    })
+  }
+  
+  ########################## Feature Details for each cancer tab
+  output$drugname=renderUI({
     h5(paste("Results for ",input$drug,"and",input$gene,"across all cancers\n",sep=" "))
   })
   
-##rendering of Feature Details for each cancer  (see end of script for output contents)
   output$feat_tables=renderUI({
     numgene=length(genefeati())
     outputlist=list(NULL)
@@ -250,7 +262,7 @@ output$drugname=renderUI({
     do.call(tagList,outputlist)
   })
     
-##Feature Details for top drugs
+##Feature Details for top drugs - one output for each cancer
   output$blcatables=renderUI({
     testgene=grepl(input$gene,paperfeatures[[1]])
     if(any(testgene)){
@@ -609,9 +621,337 @@ output$drugname=renderUI({
     c("No results for this cancer and gene")
   })
   
+  ##output content for feature-specific info
+  for(i in 1:maxfeats){
+    local({ #has to do with the order things get updated
+      ###Feature by cancer table
+      my_i =i
+      textname=paste("header",my_i,sep="")
+      output[[textname]]<-renderText({
+        if(paperfeatures2[genefeati()[my_i]] %in% features2(drugi())[[1]])
+          paste("Feature: ",paperfeatures2[genefeati()[my_i]],sep="")
+      })
+      tablename=paste("table",my_i,sep="")
+      output[[tablename]]<-renderTable({
+        feat_t=data.frame(Cancer=allcancers,
+                          coefficient=rep(NA,16),
+                          posFreq=rep(NA,16),
+                          freqCounts=rep(NA,16),
+                          freqEvents=rep(NA,16),
+                          pval=rep(NA,16),stringsAsFactors=F)
+        if(identical(input$druggroup,"CCLE")){
+          for(j in 1:length(allcancers)){
+            if(j<=length(results[[drugi()]])){
+              feat_t[j,2]=results[[drugi()]][[j]]$df$effect[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes)]
+              feat_t[j,3]=results[[drugi()]][[j]]$df$posFreq[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes)]
+              feat_t[j,4]=results[[drugi()]][[j]]$df$freqCounts[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes)]
+              feat_t[j,5:6]=results[[drugi()]][[j]]$df[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes),7:8]
+            }
+          }
+          feat_t=feat_t[!is.na(feat_t[,5]),]
+        }
+        else if(identical(input$druggroup,"Sanger")){
+          for(j in 1:length(allcancers)){ 
+            if(input$drug %in% paperdrugs & allcancers[j] %in% papercancers){
+              feat_t[j,2]=results[[drugi()]][[j]]$df$effect[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes)]
+              feat_t[j,3]=results[[drugi()]][[j]]$df$posFreq[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes)]
+              feat_t[j,4]=results[[drugi()]][[j]]$df$freqCounts[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes)]
+              feat_t[j,5:6]=results[[drugi()]][[j]]$df[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes),7:8]
+            }else {
+              if(j<=length(results[[drugi()]])){
+                feat_t[j,2]=results[[drugi()]][[j]]$effect[match(myfeat()[my_i],names(results[[drugi()]][[j]]$effect))]
+                feat_t[j,3]=results[[drugi()]][[j]]$df[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes),3]
+                feat_t[j,4]=results[[drugi()]][[j]]$df[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes),4]
+                feat_t[j,5:6]=results[[drugi()]][[j]]$df[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes),6:7]
+              }
+            }
+          }
+          feat_t=feat_t[!is.na(feat_t[,5]),]
+        }
+        if(input$paperonly) feat_t=feat_t[feat_t[,1] %in% papercancers,]
+        if(dim(feat_t)[1]<1) return(NULL) else return(feat_t)
+      },align=rep("c",7),digits=c(0,0,4,2,2,2,4),include.rownames=F)
+      
+      ###text and tables by drug for each cancer
+      
+      blcatextname=paste("blcafreq",my_i,sep="")
+      output[[blcatextname]]<-renderText({
+        if(myfeat()[my_i] %in% paperfeatures[[1]])
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[1,my_i],sep="")      
+      })
+      blcatablename=paste("blcatable",my_i,sep="")
+      output[[blcatablename]]<-renderTable({
+        if(myfeat()[my_i] %in% paperfeatures[[1]]&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=1,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      kirctextname=paste("kircfreq",my_i,sep="")
+      output[[kirctextname]]<-renderText({
+        if(myfeat()[my_i] %in% paperfeatures[[2]])
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[2,my_i],sep="")
+      })
+      kirctablename=paste("kirctable",my_i,sep="")
+      output[[kirctablename]]<-renderTable({
+        if(myfeat()[my_i] %in% paperfeatures[[2]]&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=2,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      gbmtextname=paste("gbmfreq",my_i,sep="")
+      output[[gbmtextname]]<-renderText({
+        if(myfeat()[my_i] %in% paperfeatures[[3]])
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[3,my_i],sep="")
+      })
+      gbmtablename=paste("gbmtable",my_i,sep="")
+      output[[gbmtablename]]<-renderTable({
+        if(myfeat()[my_i] %in% paperfeatures[[3]]&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=3,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      lamltextname=paste("lamlfreq",my_i,sep="")
+      output[[lamltextname]]<-renderText({
+        if(myfeat()[my_i] %in% paperfeatures[[4]])
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[4,my_i],sep="")
+        
+      })
+      lamltablename=paste("lamltable",my_i,sep="")
+      output[[lamltablename]]<-renderTable({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[4]])&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=4,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      crctextname=paste("crcfreq",my_i,sep="")
+      output[[crctextname]]<-renderText({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[5]]))
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[5,my_i],sep="")
+      })
+      crctablename=paste("crctable",my_i,sep="")
+      output[[crctablename]]<-renderTable({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[5]])&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=5,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      ovtextname=paste("ovfreq",my_i,sep="")
+      output[[ovtextname]]<-renderText({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[6]]))
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[6,my_i],sep="")
+      })
+      ovtablename=paste("ovtable",my_i,sep="")
+      output[[ovtablename]]<-renderTable({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[6]])&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=6,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,]) 
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      ucectextname=paste("ucecfreq",my_i,sep="")
+      output[[ucectextname]]<-renderText({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[7]]))
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[7,my_i],sep="")
+      })
+      ucectablename=paste("ucectable",my_i,sep="")
+      output[[ucectablename]]<-renderTable({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[7]])&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=7,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      pradtextname=paste("pradfreq",my_i,sep="")
+      output[[pradtextname]]<-renderText({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[8]]))
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[8,my_i],sep="")
+      })
+      pradtablename=paste("pradtable",my_i,sep="")
+      output[[pradtablename]]<-renderTable({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[8]])&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=8,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      skcmtextname=paste("skcmfreq",my_i,sep="")
+      output[[skcmtextname]]<-renderText({
+        if(myfeat()[my_i] %in% paperfeatures[[9]])
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[9,my_i],sep="")
+      })
+      skcmtablename=paste("skcmtable",my_i,sep="")
+      output[[skcmtablename]]<-renderTable({
+        if(myfeat()[my_i] %in% paperfeatures[[9]]&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=9,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      lusctextname=paste("luscfreq",my_i,sep="")
+      output[[lusctextname]]<-renderText({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[10]]))
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[10,my_i],sep="")
+      })
+      lusctablename=paste("lusctable",my_i,sep="")
+      output[[lusctablename]]<-renderTable({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[10]])&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=10,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      luadtextname=paste("luadfreq",my_i,sep="")
+      output[[luadtextname]]<-renderText({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[11]]))
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[11,my_i],sep="")
+      })
+      luadtablename=paste("luadtable",my_i,sep="")
+      output[[luadtablename]]<-renderTable({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[11]])&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=11,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      brcatextname=paste("brcafreq",my_i,sep="")
+      output[[brcatextname]]<-renderText({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[12]]))
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[12,my_i],sep="")
+      })
+      brcatablename=paste("brcatable",my_i,sep="")
+      output[[brcatablename]]<-renderTable({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[12]])&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=12,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      brca.3negtextname=paste("brca.3negfreq",my_i,sep="")
+      output[[brca.3negtextname]]<-renderText({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[13]]))
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[13,my_i],sep="")
+      })
+      brca.3negtablename=paste("brca.3negtable",my_i,sep="")
+      output[[brca.3negtablename]]<-renderTable({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[13]])&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=13,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      brca.erprtextname=paste("brca.erprfreq",my_i,sep="")
+      output[[brca.erprtextname]]<-renderText({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[14]]))
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[14,my_i],sep="")
+      })
+      brca.erprtablename=paste("brca.erprtable",my_i,sep="")
+      output[[brca.erprtablename]]<-renderTable({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[14]])&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=14,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      brca.her2textname=paste("brca.her2freq",my_i,sep="")
+      output[[brca.her2textname]]<-renderText({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[15]]))
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[15,my_i],sep="")
+      })
+      brca.her2tablename=paste("brca.her2table",my_i,sep="")
+      output[[brca.her2tablename]]<-renderTable({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[15]])&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=15,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+      
+      stadtextname=paste("stadfreq",my_i,sep="")
+      output[[stadtextname]]<-renderText({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[16]]))
+          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[16,my_i],sep="")
+      })
+      stadtablename=paste("stadtable",my_i,sep="")
+      output[[stadtablename]]<-renderTable({
+        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[16]])&!is.null(input$num_drugs)){
+          feattable=featbydrug(x=16,onefeat=myfeat()[my_i])
+          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
+        }
+      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
+    })
+    
+    
+    #Obtain model information for one drug and one genetic feature
+    feat1drug=function(dr,canc,onefeat){
+      if(length(results[[dr]])<canc) return(NULL) else {
+        if(drugs2[dr] %in% ccledrugs){
+          dfi=match(onefeat,results[[dr]][[canc]]$df$genes)
+          return(c(Drug=drugs[dr],
+                   coefficient=round(results[[dr]][[canc]]$df[dfi,4],digits=4),
+                   positiveFreq=round(results[[dr]][[canc]]$df[dfi,3],digits=2),
+                   freqCounts=round(results[[dr]][[canc]]$df[dfi,5],digits=4),           
+                   pval=round(results[[dr]][[canc]]$df[dfi,8],digits=4)))
+        } else if(drugs2[dr] %in% sangerdrugs){
+          if((drugs2[dr] %in% paperdrugs)&&(allcancers[canc] %in% papercancers)){
+            dfi=match(onefeat,results[[dr]][[canc]]$df$genes)
+            return(c(Drug=drugs[dr],
+                     coefficient=round(results[[dr]][[canc]]$df[dfi,4],digits=4),
+                     positiveFreq=round(results[[dr]][[canc]]$df[dfi,3],digits=2),
+                     freqCounts=round(results[[dr]][[canc]]$df[dfi,5],digits=4),           
+                     pval=round(results[[dr]][[canc]]$df[dfi,8],digits=4)))
+          } else{
+            dfi=match(onefeat,results[[dr]][[canc]]$df$genes)
+            return(c(Drug=drugs[dr],
+                     coefficient=round(results[[dr]][[canc]]$effect[match(onefeat,names(results[[dr]][[canc]]$effect))],digits=4),
+                     positiveFreq=round(results[[dr]][[canc]]$df[dfi,3],digits=2),
+                     freqCounts=round(results[[dr]][[canc]]$df[dfi,4],digits=4),           
+                     pval=round(results[[dr]][[canc]]$df[dfi,7],digits=4)))
+          }
+        }
+      }
+    }
+    
+  }
+  
+  ##Obtain model information by drug for one feature
+  featbydrug=function(x,onefeat){
+    # feat_t_drug=data.frame(Drug=drugs,effect=rep(NA,length(drugs)),counts=rep(NA,length(drugs)),posFreq=rep(NA,length(drugs)),freqCounts=rep(NA,length(drugs)),noEvents=rep(NA,length(drugs)),freqEvents=rep(NA,length(drugs)),pval=rep(NA,length(drugs)),stringsAsFactors=F)
+    if(allcancers[x] %in% papercancers[10:13]|input$paperonly){ 
+      paperdrugsi=match(paperdrugs,drugs2)
+      featalldrugs=sapply(paperdrugsi,feat1drug,canc=x,onefeat=onefeat)
+    } else
+      featalldrugs=sapply(1:length(drugs),feat1drug,canc=x,onefeat=onefeat) 
+    featalldrugs=t(featalldrugs)
+    if(input$drugsort=="freqcounts")
+      featalldrugs=data.frame(featalldrugs[order(featalldrugs[,4],decreasing=T),]) else
+        if(input$drugsort=="beta") {
+          abscoef=sapply(featalldrugs[,2],as.numeric)
+          abscoef=sapply(abscoef,abs)
+          featalldrugs=featalldrugs[order(abscoef,decreasing=T),]} else
+            if(input$drugsort=="pval")
+              featalldrugs=featalldrugs[order(featalldrugs[,5],decreasing=F),]
+    featalldrugs=featalldrugs[!is.na(featalldrugs[,2]),]
+    return(featalldrugs)
+  }
+  
+  #obtain frequency of a genetic feature in TCGA population
+  featurefreq=reactive({
+    if(!is.null(input$gene)){
+      featurefreqs=matrix(rep(NA),nrow=length(allcancers),ncol=length(genefeati()))
+      for(i in 1:length(allcancers)){
+        featurefreqs[i,]=sapply(1:length(genefeati()),function(x){
+          round(results[[4]][[i]]$df$freqEvents[match(myfeat()[x],results[[4]][[i]]$df$genes)],digits=4)
+        })}
+      return(featurefreqs)
+    }
+  })
   
   
-##KEGG Pathway output
+###################################### KEGG Pathway output
   
   #most enriched pathways
   topmaps=reactive({
@@ -697,17 +1037,20 @@ output$drugname=renderUI({
       idinput=ifelse(input$keggmethod=="main",input$keggid,input$keggid2)  
       pv.out=pathview(gene.data=pathwaygenedata(),pathway.id=idinput,out.suffix=out.suffix,kegg.native=T,
                       gene.idtype="SYMBOL",same.layer=F,gene.annotpkg="org.Hs.eg.db",limit=list(gene=c(-1,1),cpd=1),
-                      both.dirs=list(gene=T,cpd=T))
+                      both.dirs=list(gene=T,cpd=T),low = list(gene = "blue", cpd = "blue"))
       return(pv.out)
   })
   
   ##display Pathview image, stats, and data table when "Make path" button is selected
 output$pathwaymap=renderUI({
-  if(!is.null(pathway1)){
+  if(input$makepath==0) return(NULL)
+  isolate({
+  if(!is.null(pathviewmake()$plot.data.gene)){
         list(imageOutput("pathway1",height="750px"),
         textOutput("fisherinfo"),
         tableOutput("fisherTable"))
   }
+  })
 })
 
   #render pathway map image file
@@ -725,11 +1068,11 @@ output$fisherinfo=renderText({
   #Fisher test statistics table
 output$fisherTable=renderTable({
   fisherresult=fisherresults[[drugi()]][[match(input$cancer[1],allcancers)]][fisherresults[[drugi()]][[match(input$cancer[1],allcancers)]][,1]==input$keggid2,]
-  fishertab=data.frame(Cancer=input$cancer,Drug=input$drug,KeggPath=pathwayname(),
+  fishertab=data.frame(Cancer=input$cancer[1],Drug=input$drug,KeggPath=pathwayname(),
                        OddsRatio=round(as.numeric(fisherresult[2]),digits=3),PVal=round(as.numeric(fisherresult[3]),digits=5))
 },include.rownames=F,align=rep("c",6))
   
-  #Pathview object data table output
+  #Pathview object data table output (not included in current UI)
   output$pathwaytable=renderTable({
     if(input$makepath==0)
       return(NULL)
@@ -739,340 +1082,15 @@ output$fisherTable=renderTable({
     
   })
   
-  ##output content for feature-specific info
-    for(i in 1:maxfeats){
-    local({ #has to do with the order things get updated
-      ###Feature by cancer table
-      my_i =i
-      textname=paste("header",my_i,sep="")
-      output[[textname]]<-renderText({
-        if(paperfeatures2[genefeati()[my_i]] %in% features2(drugi())[[1]])
-        paste("Feature: ",paperfeatures2[genefeati()[my_i]],sep="")
-      })
-      tablename=paste("table",my_i,sep="")
-      output[[tablename]]<-renderTable({
-        feat_t=data.frame(Cancer=allcancers,
-                          coefficient=rep(NA,16),
-                          posFreq=rep(NA,16),
-                          freqCounts=rep(NA,16),
-                          freqEvents=rep(NA,16),
-                          pval=rep(NA,16),stringsAsFactors=F)
-        if(identical(input$druggroup,"CCLE")){
-          for(j in 1:length(allcancers)){
-            if(j<=length(results[[drugi()]])){
-            feat_t[j,2]=results[[drugi()]][[j]]$df$effect[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes)]
-            feat_t[j,3]=results[[drugi()]][[j]]$df$posFreq[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes)]
-            feat_t[j,4]=results[[drugi()]][[j]]$df$freqCounts[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes)]
-            feat_t[j,5:6]=results[[drugi()]][[j]]$df[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes),7:8]
-            }
-          }
-          feat_t=feat_t[!is.na(feat_t[,5]),]
-        }
-        else if(identical(input$druggroup,"Sanger")){
-          for(j in 1:length(allcancers)){ 
-            if(input$drug %in% paperdrugs & allcancers[j] %in% papercancers){
-              feat_t[j,2]=results[[drugi()]][[j]]$df$effect[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes)]
-              feat_t[j,3]=results[[drugi()]][[j]]$df$posFreq[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes)]
-              feat_t[j,4]=results[[drugi()]][[j]]$df$freqCounts[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes)]
-              feat_t[j,5:6]=results[[drugi()]][[j]]$df[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes),7:8]
-              }else {
-                if(j<=length(results[[drugi()]])){
-              feat_t[j,2]=results[[drugi()]][[j]]$effect[match(myfeat()[my_i],names(results[[drugi()]][[j]]$effect))]
-            feat_t[j,3]=results[[drugi()]][[j]]$df[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes),3]
-            feat_t[j,4]=results[[drugi()]][[j]]$df[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes),4]
-            feat_t[j,5:6]=results[[drugi()]][[j]]$df[match(myfeat()[my_i],results[[drugi()]][[j]]$df$genes),6:7]
-                }
-              }
-          }
-          feat_t=feat_t[!is.na(feat_t[,5]),]
-        }
-        if(dim(feat_t)[1]<1) return(NULL) else return(feat_t)
-      },align=rep("c",7),digits=c(0,0,4,2,2,2,4),include.rownames=F)
-      
-      ###text and tables by drug for each cancer
-      
-      blcatextname=paste("blcafreq",my_i,sep="")
-      output[[blcatextname]]<-renderText({
-        if(myfeat()[my_i] %in% paperfeatures[[1]])
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[1,my_i],sep="")      
-      })
-      blcatablename=paste("blcatable",my_i,sep="")
-      output[[blcatablename]]<-renderTable({
-        if(myfeat()[my_i] %in% paperfeatures[[1]]&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=1,onefeat=myfeat()[my_i])
-          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-        }
-      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      kirctextname=paste("kircfreq",my_i,sep="")
-      output[[kirctextname]]<-renderText({
-        if(myfeat()[my_i] %in% paperfeatures[[2]])
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[2,my_i],sep="")
-      })
-      kirctablename=paste("kirctable",my_i,sep="")
-      output[[kirctablename]]<-renderTable({
-        if(myfeat()[my_i] %in% paperfeatures[[2]]&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=2,onefeat=myfeat()[my_i])
-        if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-        }
-      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      gbmtextname=paste("gbmfreq",my_i,sep="")
-      output[[gbmtextname]]<-renderText({
-        if(myfeat()[my_i] %in% paperfeatures[[3]])
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[3,my_i],sep="")
-      })
-      gbmtablename=paste("gbmtable",my_i,sep="")
-      output[[gbmtablename]]<-renderTable({
-        if(myfeat()[my_i] %in% paperfeatures[[3]]&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=3,onefeat=myfeat()[my_i])
-        if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-        }
-      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      lamltextname=paste("lamlfreq",my_i,sep="")
-      output[[lamltextname]]<-renderText({
-        if(myfeat()[my_i] %in% paperfeatures[[4]])
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[4,my_i],sep="")
-        
-      })
-      lamltablename=paste("lamltable",my_i,sep="")
-      output[[lamltablename]]<-renderTable({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[4]])&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=4,onefeat=myfeat()[my_i])
-        if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-        }
-      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      crctextname=paste("crcfreq",my_i,sep="")
-      output[[crctextname]]<-renderText({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[5]]))
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[5,my_i],sep="")
-      })
-      crctablename=paste("crctable",my_i,sep="")
-      output[[crctablename]]<-renderTable({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[5]])&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=5,onefeat=myfeat()[my_i])
-        if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-}
-      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      ovtextname=paste("ovfreq",my_i,sep="")
-      output[[ovtextname]]<-renderText({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[6]]))
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[6,my_i],sep="")
-      })
-      ovtablename=paste("ovtable",my_i,sep="")
-      output[[ovtablename]]<-renderTable({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[6]])&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=6,onefeat=myfeat()[my_i])
-        if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,]) 
-        }
-      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      ucectextname=paste("ucecfreq",my_i,sep="")
-      output[[ucectextname]]<-renderText({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[7]]))
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[7,my_i],sep="")
-      })
-      ucectablename=paste("ucectable",my_i,sep="")
-      output[[ucectablename]]<-renderTable({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[7]])&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=7,onefeat=myfeat()[my_i])
-        if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-        }
-      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      pradtextname=paste("pradfreq",my_i,sep="")
-      output[[pradtextname]]<-renderText({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[8]]))
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[8,my_i],sep="")
-      })
-      pradtablename=paste("pradtable",my_i,sep="")
-      output[[pradtablename]]<-renderTable({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[8]])&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=8,onefeat=myfeat()[my_i])
-          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-        }
-      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      skcmtextname=paste("skcmfreq",my_i,sep="")
-      output[[skcmtextname]]<-renderText({
-        if(myfeat()[my_i] %in% paperfeatures[[9]])
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[9,my_i],sep="")
-      })
-      skcmtablename=paste("skcmtable",my_i,sep="")
-      output[[skcmtablename]]<-renderTable({
-        if(myfeat()[my_i] %in% paperfeatures[[9]]&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=9,onefeat=myfeat()[my_i])
-          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-          }
-        },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      lusctextname=paste("luscfreq",my_i,sep="")
-      output[[lusctextname]]<-renderText({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[10]]))
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[10,my_i],sep="")
-      })
-      lusctablename=paste("lusctable",my_i,sep="")
-      output[[lusctablename]]<-renderTable({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[10]])&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=10,onefeat=myfeat()[my_i])
-          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-        }
-          },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      luadtextname=paste("luadfreq",my_i,sep="")
-      output[[luadtextname]]<-renderText({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[11]]))
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[11,my_i],sep="")
-      })
-      luadtablename=paste("luadtable",my_i,sep="")
-      output[[luadtablename]]<-renderTable({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[11]])&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=11,onefeat=myfeat()[my_i])
-          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-        }
-          },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      brcatextname=paste("brcafreq",my_i,sep="")
-      output[[brcatextname]]<-renderText({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[12]]))
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[12,my_i],sep="")
-      })
-      brcatablename=paste("brcatable",my_i,sep="")
-      output[[brcatablename]]<-renderTable({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[12]])&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=12,onefeat=myfeat()[my_i])
-          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-        }
-      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      brca.3negtextname=paste("brca.3negfreq",my_i,sep="")
-      output[[brca.3negtextname]]<-renderText({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[13]]))
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[13,my_i],sep="")
-      })
-      brca.3negtablename=paste("brca.3negtable",my_i,sep="")
-      output[[brca.3negtablename]]<-renderTable({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[13]])&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=13,onefeat=myfeat()[my_i])
-          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-        }
-      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      brca.erprtextname=paste("brca.erprfreq",my_i,sep="")
-      output[[brca.erprtextname]]<-renderText({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[14]]))
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[14,my_i],sep="")
-      })
-      brca.erprtablename=paste("brca.erprtable",my_i,sep="")
-      output[[brca.erprtablename]]<-renderTable({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[14]])&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=14,onefeat=myfeat()[my_i])
-          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-        }
-      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      brca.her2textname=paste("brca.her2freq",my_i,sep="")
-      output[[brca.her2textname]]<-renderText({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[15]]))
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[15,my_i],sep="")
-      })
-      brca.her2tablename=paste("brca.her2table",my_i,sep="")
-      output[[brca.her2tablename]]<-renderTable({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[15]])&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=15,onefeat=myfeat()[my_i])
-          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-        }
-      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-      
-      stadtextname=paste("stadfreq",my_i,sep="")
-      output[[stadtextname]]<-renderText({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[16]]))
-          paste(paperfeatures2[genefeati()[my_i]],"\n\n Frequency in TCGA population: ",featurefreq()[16,my_i],sep="")
-      })
-      stadtablename=paste("stadtable",my_i,sep="")
-      output[[stadtablename]]<-renderTable({
-        if(isTRUE(myfeat()[my_i] %in% paperfeatures[[16]])&!is.null(input$num_drugs)){
-          feattable=featbydrug(x=16,onefeat=myfeat()[my_i])
-          if(dim(feattable)[1]<input$num_drugs) return(feattable) else return(feattable[1:input$num_drugs,])
-        }
-      },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-    })
+    
+    ############ End of shinyServer function
+})
   
-    
-    #Obtain model information for one drug
-    feat1drug=function(dr,canc,onefeat){
-      if(length(results[[dr]])<canc) return(NULL) else {
-      if(drugs2[dr] %in% ccledrugs){
-        dfi=match(onefeat,results[[dr]][[canc]]$df$genes)
-        return(c(Drug=drugs[dr],
-                 coefficient=round(results[[dr]][[canc]]$df[dfi,4],digits=4),
-                 positiveFreq=round(results[[dr]][[canc]]$df[dfi,3],digits=2),
-                 freqCounts=round(results[[dr]][[canc]]$df[dfi,5],digits=4),           
-                 pval=round(results[[dr]][[canc]]$df[dfi,8],digits=4)))
-      } else if(drugs2[dr] %in% sangerdrugs){
-        if((drugs2[dr] %in% paperdrugs)&&(allcancers[canc] %in% papercancers)){
-          dfi=match(onefeat,results[[dr]][[canc]]$df$genes)
-          return(c(Drug=drugs[dr],
-                   coefficient=round(results[[dr]][[canc]]$df[dfi,4],digits=4),
-                   positiveFreq=round(results[[dr]][[canc]]$df[dfi,3],digits=2),
-                   freqCounts=round(results[[dr]][[canc]]$df[dfi,5],digits=4),           
-                   pval=round(results[[dr]][[canc]]$df[dfi,8],digits=4)))
-        } else{
-          dfi=match(onefeat,results[[dr]][[canc]]$df$genes)
-        return(c(Drug=drugs[dr],
-                 coefficient=round(results[[dr]][[canc]]$effect[match(onefeat,names(results[[dr]][[canc]]$effect))],digits=4),
-                 positiveFreq=round(results[[dr]][[canc]]$df[dfi,3],digits=2),
-                 freqCounts=round(results[[dr]][[canc]]$df[dfi,4],digits=4),           
-                 pval=round(results[[dr]][[canc]]$df[dfi,7],digits=4)))
-        }
-      }
-      }
-    }
-    
-    ##Obtain model information by drug
-    featbydrug=function(x,onefeat){
-      # feat_t_drug=data.frame(Drug=drugs,effect=rep(NA,length(drugs)),counts=rep(NA,length(drugs)),posFreq=rep(NA,length(drugs)),freqCounts=rep(NA,length(drugs)),noEvents=rep(NA,length(drugs)),freqEvents=rep(NA,length(drugs)),pval=rep(NA,length(drugs)),stringsAsFactors=F)
-      if(allcancers[x] %in% papercancers[10:13]|input$paperonly){ 
-        paperdrugsi=match(paperdrugs,drugs2)
-        featalldrugs=sapply(paperdrugsi,feat1drug,canc=x,onefeat=onefeat)
-      } else
-        featalldrugs=sapply(1:length(drugs),feat1drug,canc=x,onefeat=onefeat) 
-      featalldrugs=t(featalldrugs)
-      if(input$drugsort=="freqcounts")
-        featalldrugs=data.frame(featalldrugs[order(featalldrugs[,4],decreasing=T),]) else
-          if(input$drugsort=="beta") {
-            abscoef=sapply(featalldrugs[,2],as.numeric)
-            abscoef=sapply(abscoef,abs)
-            featalldrugs=featalldrugs[order(abscoef,decreasing=T),]} else
-              if(input$drugsort=="pval")
-                featalldrugs=featalldrugs[order(featalldrugs[,5],decreasing=F),]
-      featalldrugs=featalldrugs[!is.na(featalldrugs[,2]),]
-      return(featalldrugs)
-      #  for(i in 1:length(drugs)){
-      #    feat_t_drug[i,2]=results[[i]][[x]]$effect[match(input$feature,names(results[[i]][[x]]$effect))]
-      #   feat_t_drug[i,3:8]=results[[i]][[x]]$df[match(input$feature,results[[i]][[x]]$df$genes),2:7]
-      #  }
-    }
-    
-    #obtain frequency of a genetic feature in TCGA population
-    featurefreq=reactive({
-      if(!is.null(input$gene)){
-        featurefreqs=matrix(rep(NA),nrow=length(allcancers),ncol=length(genefeati()))
-        for(i in 1:length(allcancers)){
-          featurefreqs[i,]=sapply(1:length(genefeati()),function(x){
-            round(results[[4]][[i]]$df$freqEvents[match(myfeat()[x],results[[4]][[i]]$df$genes)],digits=4)
-          })}
-        return(featurefreqs)
-      }
-    })
-    
-    
-    
-  }
-  
+
+
+############### experimental/incomplete functions
+
+### colored text attempts
   # cell_html <- function(table_cell) paste0('<td>', table_cell, '</td>')
   # 
   # row_html <- function(table_row) {
@@ -1086,103 +1104,7 @@ output$fisherTable=renderTable({
   #   
   # })
   
-  # output$feat_table_drug1=renderTable({
-  #     if(isTRUE(input$feature %in% features[[1]]))
-  #      featbydrug(1)[1:input$num_drugs,] 
-  #   },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-  # output$feat_freq1=renderText({
-  #   paste("Frequency of aberration in TCGA population:",featurefreq()[1])
-  # })
-  # output$feat_table_drug2=renderTable({
-  #   if(isTRUE(input$feature %in% features[[2]])){
-  #     featbydrug(2)[1:input$num_drugs,] 
-  #   }
-  # },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-  # output$feat_freq2=renderText({
-  #   paste("Frequency of aberration in TCGA population:",featurefreq()[2])
-  # })
-  # 
-  # output$feat_table_drug3=renderTable({
-  #   if(isTRUE((input$feature %in% features[[3]]))){
-  #     featbydrug(3)[1:input$num_drugs,] 
-  #   }
-  # },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-  # output$feat_freq3=renderText({
-  #   paste("Frequency of aberration in TCGA population:",featurefreq()[3])
-  # })
-  # output$feat_table_drug4=renderTable({
-  #   if(isTRUE((input$feature %in% features[[4]]))){
-  #     featbydrug(4)[1:input$num_drugs,] 
-  #   }
-  # },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-  # output$feat_freq4=renderText({
-  #   paste("Frequency of aberration in TCGA population:",featurefreq()[4])
-  # })
-  # output$feat_table_drug5=renderTable({
-  #   if(isTRUE((input$feature %in% features[[5]]))){
-  #     featbydrug(5)[1:input$num_drugs,] 
-  #   }
-  # },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-  # output$feat_freq5=renderText({
-  #   paste("Frequency of aberration in TCGA population:",featurefreq()[5])
-  # })
-  # output$feat_table_drug6=renderTable({
-  #   if(isTRUE((input$feature %in% features[[6]]))){
-  #     featbydrug(6)[1:input$num_drugs,] 
-  #   }
-  # },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-  # output$feat_freq6=renderText({
-  #   paste("Frequency of aberration in TCGA population:",featurefreq()[6])
-  # })
-  # output$feat_table_drug7=renderTable({
-  #   if(isTRUE((input$feature %in% features[[7]]))){
-  #     featbydrug(7)[1:input$num_drugs,] 
-  #   }
-  # },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-  # output$feat_freq7=renderText({
-  #   paste("Frequency of aberration in TCGA population:",featurefreq()[7])
-  # })
-  # output$feat_table_drug8=renderTable({
-  #   if(isTRUE((input$feature %in% features[[8]]))){
-  #     featbydrug(8)[1:input$num_drugs,] 
-  #   }
-  # },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-  # output$feat_freq8=renderText({
-  #   paste("Frequency of aberration in TCGA population:",featurefreq()[8])
-  # })
-  # output$feat_table_drug9=renderTable({
-  #   if(isTRUE((input$feature %in% features[[9]]))){
-  #     featbydrug(9)[1:input$num_drugs,] 
-  #   }
-  # },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-  # output$feat_freq9=renderText({
-  #   paste("Frequency of aberration in TCGA population:",featurefreq()[9])
-  # })
-  # output$feat_table_drug10=renderTable({
-  #   if(isTRUE((input$feature %in% features[[10]]))){
-  #     featbydrug(10)[1:input$num_drugs,] 
-  #   }
-  # },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-  # output$feat_freq10=renderText({
-  #   paste("Frequency of aberration in TCGA population:",featurefreq()[10])
-  # })
-  # output$feat_table_drug11=renderTable({
-  #   if(isTRUE((input$feature %in% features[[11]]))){
-  #     featbydrug(11)[1:input$num_drugs,] 
-  #   }
-  # },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-  # output$feat_freq11=renderText({
-  #   paste("Frequency of aberration in TCGA population:",featurefreq()[11])
-  # })
-  # output$feat_table_drug12=renderTable({
-  #   if(isTRUE((input$feature %in% features[[12]]))){
-  #     featbydrug(12)[1:input$num_drugs,] 
-  #   }
-  # },include.rownames=F,digits=c(0,0,4,2,2,4),align=rep("c",6))
-  # output$feat_freq12=renderText({
-  #   paste("Frequency of aberration in TCGA population:",featurefreq()[12])
-  # })
-  # 
+######plot results for different drugs on same plot
   # output$featDrugPlots=renderPlot({
   #   if(numcanc()>0){
   #   par(mfrow=c(1,numcanc()))
@@ -1210,11 +1132,5 @@ output$fisherTable=renderTable({
   #   }
   #   })
   
-})
-#output$auc_celllines=renderText(vdsObj$auc_celllines)
-#output$metrics=renderText(vdsObj$diseaseFMAT$crc$metric)
-#output$perf_metrics=renderTable(
-#data.frame(Value=c(vdsObj$auc_celllines,vdsObj$diseaseFMAT$crc$metric[1],vdsObj$diseaseFMAT$crc$metric[2],vdsObj$diseaseFMAT$crc$N),row.names=c("AUC all cell lines","AUC","Spearman coefficient","N TCGA samples")))
 
-#})
 

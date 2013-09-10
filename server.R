@@ -615,9 +615,11 @@ output$drugname=renderUI({
   
   #most enriched pathways
   topmaps=reactive({
+    if(length(input$cancer)>0){
     canceri=match(input$cancer[1],allcancers)
     ortable=fisherresults[[drugi()]][[canceri]]
     if(length(ortable[,2][as.numeric(ortable[,2])>2])>15) return(ortable[as.numeric(ortable[,2])>2,]) else return(ortable[1:15,])
+    }
   })
   
   #select from most enriched pathways
@@ -690,9 +692,6 @@ output$drugname=renderUI({
   
   #generate pathview object, map image file
   pathviewmake=reactive({
-    if(input$makepath==0)
-      return(NULL)
-    isolate({
       out.suffix=paste(input$cancer[1],input$drug,sep="_")
       digits=ifelse(input$highlight=="beta",5,1)
       idinput=ifelse(input$keggmethod=="main",input$keggid,input$keggid2)  
@@ -700,18 +699,13 @@ output$drugname=renderUI({
                       gene.idtype="SYMBOL",same.layer=F,gene.annotpkg="org.Hs.eg.db",limit=list(gene=c(-1,1),cpd=1),
                       both.dirs=list(gene=T,cpd=T))
       return(pv.out)
-    })
   })
   
   ##display Pathview image, stats, and data table when "Make path" button is selected
 output$pathwaymap=renderUI({
-  if(input$makepath==0) return(NULL)
-  isolate({
-    if(!is.null(pathviewmake()))
         list(imageOutput("pathway1",height="750px"),
         textOutput("fisherinfo"),
         tableOutput("fisherTable"))
-         })
 })
 
   #render pathway map image file

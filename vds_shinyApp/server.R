@@ -147,6 +147,7 @@ shinyServer(function(input, output,clientData,session) {
     if(input$paperonly) return(input$cancer[input$cancer %in% papercancers]) else return(input$cancer)
   })
   
+  ###### Variable number of performance plots depending on cancers selected - output content is filled in below
   output$cancerperfplots=renderUI({
     outputlistperf=list(NULL)
     if(!is.null(input$drug)&length(notpapercanc())>0){
@@ -248,7 +249,7 @@ shinyServer(function(input, output,clientData,session) {
     })
   }
   
-  ########################## Feature Details for each cancer tab
+  ########################## Compare Feature Across Cancers tab
   output$drugname=renderUI({
     h5(paste("Results for ",input$drug,"and",input$gene,"across all cancers\n",sep=" "))
   })
@@ -269,7 +270,7 @@ shinyServer(function(input, output,clientData,session) {
     do.call(tagList,outputlist)
   })
     
-##Feature Details for top drugs - one output for each cancer
+#################### Compare Feature Across Drugs - one output for each cancer (with a variable number of features for each gene inside each output)
   output$blcatables=renderUI({
     testgene=grepl(input$gene,paperfeatures[[1]])
     if(any(testgene)){
@@ -892,7 +893,7 @@ shinyServer(function(input, output,clientData,session) {
     })
     
     
-    #Obtain model information for one drug and one genetic feature
+    ####### Function to obtain model information for one drug and one genetic feature
     feat1drug=function(dr,canc,onefeat){
       if(length(results[[dr]])<canc) return(NULL) else {
         if(drugs2[dr] %in% ccledrugs){
@@ -924,7 +925,7 @@ shinyServer(function(input, output,clientData,session) {
     
   }
   
-  ##Obtain model information by drug for one feature
+  ####### #Obtain model information for all drugs for one feature
   featbydrug=function(x,onefeat){
     # feat_t_drug=data.frame(Drug=drugs,effect=rep(NA,length(drugs)),counts=rep(NA,length(drugs)),posFreq=rep(NA,length(drugs)),freqCounts=rep(NA,length(drugs)),noEvents=rep(NA,length(drugs)),freqEvents=rep(NA,length(drugs)),pval=rep(NA,length(drugs)),stringsAsFactors=F)
     if(allcancers[x] %in% papercancers[10:13]|input$paperonly){ 
@@ -1024,7 +1025,6 @@ shinyServer(function(input, output,clientData,session) {
       gene=c(gene,genevec)
       value=c(value,rep(value1,length(genevec)))
     }
-    #pgenedata=data.frame(gene,value)
     df=matrix(nrow=0,ncol=2)
     for(i in 1:length(gene)){
       if((gene[i] %in% df[,1])==F)
@@ -1049,7 +1049,8 @@ shinyServer(function(input, output,clientData,session) {
   idinput=reactive({
     if(input$keggmethod=="main") return(input$keggid) else if(input$keggmethod=="calc") return(input$keggid2) else return(NULL)
   })
-  ##display Pathview image, stats, and data table when "Make path" button is selected
+  
+  ##display Pathview image, stats, and data table
 output$pathwaymap=renderUI({
   pathviewmake(idinput())
   filename=normalizePath(file.path(paste(getwd(),'/hsa',idinput(),'.',input$cancer[1],'_',input$drug,'.png',sep='')))
@@ -1096,7 +1097,7 @@ output$fisherTable=renderTable({
 
 ############### experimental/incomplete functions
 
-### colored text attempts
+### make rows of table different colors
   # cell_html <- function(table_cell) paste0('<td>', table_cell, '</td>')
   # 
   # row_html <- function(table_row) {

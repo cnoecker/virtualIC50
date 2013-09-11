@@ -132,11 +132,11 @@ keggpathways=c("Cell cycle"="04110","MAPK signaling pathway"="04010", "p53 signa
   "Small cell lung cancer"="05222")
 
 ### Model results - see resultsRead.R
-load("/gluster/home/cnoecker/vdsResults.rda")
+load("/gluster/home/cnoecker/RDataVdsApp/vdsResults.rda")
 
 ######KEGG info - keggPaths_FisherTests.R
-load("/gluster/home/cnoecker/keggpathways.rda") 
-load("/gluster/home/cnoecker/fisherpathresults.rda")
+load("/gluster/home/cnoecker/RDataVdsApp/keggpathways.rda") 
+load("/gluster/home/cnoecker/RDataVdsApp/fisherpathresults.rda")
 
 
 ##Genes and genetic features

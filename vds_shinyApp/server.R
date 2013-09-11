@@ -13,11 +13,19 @@ shinyServer(function(input, output,clientData,session) {
   
   ########## Select all and select none buttons
   observe({
-      if(input$selectall)
+      if(input$selectall){
       updateCheckboxGroupInput(session,inputId="cancer",choices=cancerscheck,selected=cancerlabels)
+      updateCheckboxInput(session,inputId="unselect",value=FALSE)
+      updateCheckboxInput(session,inputId="selectall",value=FALSE)
+      }
     
-      if(input$unselect)
-      updateCheckboxGroupInput(session,inputId="cancer",choices=cancerscheck)
+      if(input$unselect){
+      updateCheckboxGroupInput(session,inputId="cancer",choices=cancerscheck,selected=c())
+      updateCheckboxInput(session,inputId="selectall",value=FALSE)
+      updateCheckboxInput(session,inputId="unselect",value=FALSE)
+      }
+      
+      
   })
   
   ############################ General reactive expressions and functions for accessing results
@@ -46,6 +54,7 @@ shinyServer(function(input, output,clientData,session) {
   
   #Reactive drug choices - CCLE, Sanger, paper subset
   output$drugchoice=renderUI({
+    drugchoice=input$drug
     choices=c()
     if(input$druggroup=="CCLE"){
       if(any(input$cancer %in% papercancers[10:13])|input$paperonly)
@@ -56,7 +65,7 @@ shinyServer(function(input, output,clientData,session) {
         choices=paperdrugs[paperdrugs %in% sangerdrugs]
       else choices=sangerdrugs
     }
-    selectInput("drug","Choose a drug",choices=choices)
+    selectInput("drug","Choose a drug",choices=choices,selected=drugchoice)
   })
   
   ##Feature lists to use depending on subset of results

@@ -7,8 +7,8 @@ shinyUI(pageWithSidebar(
 headerPanel("Virtual Drug Sensitivity Pipeline"),
 sidebarPanel(
 checkboxGroupInput("cancer","Select one or more cancers:",choices=cancerscheck),
-actionButton("selectall","Select all cancers"),
-actionButton("unselect","Select none"),
+checkboxInput("selectall","Select all cancers"),
+checkboxInput("unselect","De-select all cancers"),
 selectInput("druggroup","CCLE or Sanger drugs?",choices=c("CCLE","Sanger")),
 htmlOutput("drugchoice"), #list of drugs to choose from depends on if CCLE or Sanger is selected
 #selectInput("drug","Choose a drug:",choices=drugs),

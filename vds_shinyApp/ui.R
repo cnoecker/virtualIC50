@@ -20,20 +20,20 @@ conditionalPanel(condition="input.tabset1=='Features Summary'&&input.all_subset=
                  numericInput("num_feat","Number of features to display",value=10,min=1,max=100)),
 
 #choose a gene for by-feature results
-conditionalPanel(condition="input.tabset1=='Feature Details by Drug'|input.tabset1=='Feature Details by Cancer'",
+conditionalPanel(condition="input.tabset1=='Compare Feature Across Drugs'|input.tabset1=='Compare Feature Across Cancers'",
                  selectInput("gene","Choose a gene:",choices=cclegenes)),
 #plotting options for results for different drugs
-#conditionalPanel(condition="input.tabset1=='Feature Details by Drug'",
+#conditionalPanel(condition="input.tabset1=='Compare Feature Across Drugs'",
  #                selectInput("xaxis","Plot X variable",choices=c("Effect size"="beta","Importance score"="freqcounts","P-value"="pval")),
   #               selectInput("yaxis","Plot Y variable",choices=c("Effect size"="beta","Importance score"="freqcounts","P-value"="pval")),
    #              actionButton("plotdrugs","Plot Drugs")),
-conditionalPanel(condition="input.tabset1=='Feature Details by Drug'",
+conditionalPanel(condition="input.tabset1=='Compare Feature Across Drugs'",
                  selectInput("drugsort","Sort table by:",choices=c("Importance score"="freqcounts","Effect size"="beta","P-Value"="pval")),
                  numericInput("num_drugs","Number of drugs to show in table (max 13 for paper results, 154 for all)",value=10,min=1,max=154)
                  ),
-                 checkboxInput("paperonly","Show only newest results"),
+                 checkboxInput("paperonly","Show only most recent results included in paper"),
 #This was never actually implemented - show results for drugs with same target
-#conditionalPanel(condition="input.tabset1=='Feature Details by Cancer'",
+#conditionalPanel(condition="input.tabset1=='Compare Feature Across Cancers'",
 #                 actionButton("reldrugs","See results for this gene for other related drugs")),
 
 ##KEGG pathway visualization
@@ -44,8 +44,8 @@ conditionalPanel(condition="input.tabset1=='KEGG Pathway View'",
                                   ),
                  conditionalPanel(condition="input.keggmethod=='calc'",
                                 uiOutput("topmapchoices")),
-                 selectInput("highlight","Highlight nodes based on:",choices=c("Model effect"="beta","Importance score"="freqcounts","Frequency in TCGA population"="freqevents")),
-                 actionButton("makepath","Make and show Pathview")
+                 selectInput("highlight","Highlight nodes based on:",choices=c("Model effect"="beta","Importance score"="freqcounts","Frequency in TCGA population"="freqevents"))
+                 #actionButton("makepath","Make and show Pathview")
                  )),
 mainPanel(
 tabsetPanel(
@@ -59,11 +59,11 @@ uiOutput("allperfplot"),
 uiOutput("cancerperfplots")),
 tabPanel("Features Summary",
          uiOutput("featuresummary")),
-tabPanel("Feature Details by Cancer",
+tabPanel("Compare Feature Across Cancers",
          uiOutput("drugname"),
          uiOutput("feat_tables")
          ),
-tabPanel("Feature Details by Drug",
+tabPanel("Compare Feature Across Drugs",
          #conditionalPanel(condition="input.cancer.length>0",
           #                plotOutput("featDrugPlots")),
          conditionalPanel(condition= "input.cancer.indexOf('blca')!=-1&&input.paperonly!=1",
@@ -117,7 +117,7 @@ tabPanel("Feature Details by Drug",
                           uiOutput("stadtables"))
          ),
 tabPanel("KEGG Pathway View",
-         helpText("'Make and show Pathview' will write the pathway image to a file and then load it back into Shiny. It will only use the model for the first cancer selected."),
+         helpText("Only the first cancer selected is used to generate the pathway maps. The image file is saved as keggID.cancer_Drug.png"),
           uiOutput("pathwaymap")
          ),
 id="tabset1")

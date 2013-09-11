@@ -5,8 +5,8 @@ library(reshape)
 ############### server function, generates outputs for Shiny app
 #### 84: Model performance tab
 #### 164: Feature Summary tab
-#### 249: Feature Details Across cancers tab
-#### 271: Feature Details across drugs tab
+#### 249: Compare Feature Across cancers tab
+#### 271: Compare feature across drugs tab
 #### 961: KEGG pathway visualization
 
 shinyServer(function(input, output,clientData,session) {
@@ -983,8 +983,7 @@ shinyServer(function(input, output,clientData,session) {
   
   #name of pathway selected
   pathwayname=reactive({
-    idinput=ifelse(input$keggmethod=="main",input$keggid,input$keggid2)
-    pathwayname=names(keggpaths2[keggpaths2==idinput])
+    pathwayname=names(keggpaths2[keggpaths2==idinput()])
   })
   
   #generate list of values associated with gene IDs for pathview function
@@ -1047,18 +1046,23 @@ shinyServer(function(input, output,clientData,session) {
       return(pv.out)
   }
   
+  idinput=reactive({
+    if(input$keggmethod=="main") return(input$keggid) else if(input$keggmethod=="calc") return(input$keggid2) else return(NULL)
+  })
   ##display Pathview image, stats, and data table when "Make path" button is selected
 output$pathwaymap=renderUI({
+  pathviewmake(idinput())
+  filename=normalizePath(file.path(paste(getwd(),'/hsa',idinput(),'.',input$cancer[1],'_',input$drug,'.png',sep='')))
+  if(file.exists(filename)){
         return(list(imageOutput("pathway1",height="750px"),
         textOutput("fisherinfo"),
         tableOutput("fisherTable")))
+  }
 })
   
   #render pathway map image file
 output$pathway1=renderImage({
-      idinput=ifelse(input$keggmethod=="main",input$keggid,input$keggid2)
-      pathviewmake(idinput)
-      filename=normalizePath(file.path(paste('/gluster/home/cnoecker/vdsapp3/hsa',idinput,'.',input$cancer[1],'_',input$drug,'.png',sep='')))
+      filename=normalizePath(file.path(paste(getwd(),'/hsa',idinput(),'.',input$cancer[1],'_',input$drug,'.png',sep='')))
       list(src=filename,width=700)
 },deleteFile=FALSE)
   

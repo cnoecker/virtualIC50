@@ -2,6 +2,13 @@ library(shiny)
 library(RCircos)
 library(reshape)
 
+############### server function, generates outputs for Shiny app
+#### 84: Model performance tab
+#### 164: Feature Summary tab
+#### 249: Feature Details Across cancers tab
+#### 271: Feature Details across drugs tab
+#### 961: KEGG pathway visualization
+
 shinyServer(function(input, output,clientData,session) {
   
   ########## Select all and select none buttons
@@ -1031,33 +1038,28 @@ shinyServer(function(input, output,clientData,session) {
   })
   
   #generate pathview object, map image file
-  pathviewmake=reactive({
+  pathviewmake=function(idinput){
       out.suffix=paste(input$cancer[1],input$drug,sep="_")
       digits=ifelse(input$highlight=="beta",5,1)
-      idinput=ifelse(input$keggmethod=="main",input$keggid,input$keggid2)  
       pv.out=pathview(gene.data=pathwaygenedata(),pathway.id=idinput,out.suffix=out.suffix,kegg.native=T,
                       gene.idtype="SYMBOL",same.layer=F,gene.annotpkg="org.Hs.eg.db",limit=list(gene=c(-1,1),cpd=1),
                       both.dirs=list(gene=T,cpd=T),low = list(gene = "blue", cpd = "blue"))
       return(pv.out)
-  })
+  }
   
   ##display Pathview image, stats, and data table when "Make path" button is selected
 output$pathwaymap=renderUI({
-  if(input$makepath==0) return(NULL)
-  isolate({
-  if(!is.null(pathviewmake()$plot.data.gene)){
-        list(imageOutput("pathway1",height="750px"),
+        return(list(imageOutput("pathway1",height="750px"),
         textOutput("fisherinfo"),
-        tableOutput("fisherTable"))
-  }
-  })
+        tableOutput("fisherTable")))
 })
-
+  
   #render pathway map image file
 output$pathway1=renderImage({
-  idinput=ifelse(input$keggmethod=="main",input$keggid,input$keggid2)
-  filename=normalizePath(file.path(paste('/gluster/home/cnoecker/vdsapp3/hsa',idinput,'.',input$cancer[1],'_',input$drug,'.png',sep='')))
-    list(src=filename,width=700)
+      idinput=ifelse(input$keggmethod=="main",input$keggid,input$keggid2)
+      pathviewmake(idinput)
+      filename=normalizePath(file.path(paste('/gluster/home/cnoecker/vdsapp3/hsa',idinput,'.',input$cancer[1],'_',input$drug,'.png',sep='')))
+      list(src=filename,width=700)
 },deleteFile=FALSE)
   
   #Fisher test info on selected pathway
@@ -1073,15 +1075,15 @@ output$fisherTable=renderTable({
 },include.rownames=F,align=rep("c",6))
   
   #Pathview object data table output (not included in current UI)
-  output$pathwaytable=renderTable({
-    if(input$makepath==0)
-      return(NULL)
-    isolate({
-      pathviewmake()$plot.data.gene
-    })
-    
-  })
-  
+#   output$pathwaytable=renderTable({
+#     if(input$makepath==0)
+#       return(NULL)
+#     isolate({
+#       pathviewmake()$plot.data.gene
+#     })
+#     
+#   })
+#   
     
     ############ End of shinyServer function
 })

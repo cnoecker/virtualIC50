@@ -212,27 +212,3 @@ maxfeats=max(cclefeats) #### 11 different features for 1 gene
 # }
 # maxfeats2=max(sangerfeats)
 
-
-
-
-############## Show results for drugs with the same target - never fully implemented
-
-# targetinfo=read.csv("/gluster/home/cnoecker/drugtargets.csv")
-# head(targetinfo)
-# table(targetinfo$Target)
-# drugs2=gsub("ccle_","",drugs)
-# drugs2=gsub("sanger_","",drugs2)
-# 
-# targets=rep(NA,length(drugs2))
-# for(i in 1:length(drugs2)){
-#   ind=match(drugs2[i],targetinfo$Drug)
-#     targets[i]=as.character(targetinfo$Target[ind])
-# }
-# 
-# write.csv(cbind(drugs2,targets),file="/gluster/home/cnoecker/targets.csv")
-
-
-# targetinfo=read.csv("/gluster/home/cnoecker/targets.csv")
-# targets=targetinfo$targets
-# targets=gsub(",","",targets)
-

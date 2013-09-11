@@ -1,17 +1,22 @@
 library(shiny)
 
-##UI inputs and outputs
+############################ UI inputs and outputs to display
 
 shinyUI(pageWithSidebar(
 
 headerPanel("Virtual Drug Sensitivity Pipeline"),
+
+############### Sidebar - inputs
 sidebarPanel(
+  
+### Choose cancers and drug
 checkboxGroupInput("cancer","Select one or more cancers:",choices=cancerscheck),
 checkboxInput("selectall","Select all cancers"),
 checkboxInput("unselect","De-select all cancers"),
 selectInput("druggroup","CCLE or Sanger drugs?",choices=c("CCLE","Sanger")),
 htmlOutput("drugchoice"), #list of drugs to choose from depends on if CCLE or Sanger is selected
-#selectInput("drug","Choose a drug:",choices=drugs),
+
+## Feature summary options
 conditionalPanel(condition="input.tabset1=='Features Summary'",
                  selectInput("all_subset","Display all features or only most important?",choices=c("Most important","All")),
                  selectInput("sortfeat","Sort features by:",choices=c("Importance score"="freqcounts","Effect size"="beta","P-value"="pval"))
@@ -19,24 +24,17 @@ conditionalPanel(condition="input.tabset1=='Features Summary'",
 conditionalPanel(condition="input.tabset1=='Features Summary'&&input.all_subset=='Most important'",
                  numericInput("num_feat","Number of features to display",value=10,min=1,max=100)),
 
-#choose a gene for by-feature results
+#Choose a gene for by-feature results
 conditionalPanel(condition="input.tabset1=='Compare Feature Across Drugs'|input.tabset1=='Compare Feature Across Cancers'",
                  selectInput("gene","Choose a gene:",choices=cclegenes)),
-#plotting options for results for different drugs
-#conditionalPanel(condition="input.tabset1=='Compare Feature Across Drugs'",
- #                selectInput("xaxis","Plot X variable",choices=c("Effect size"="beta","Importance score"="freqcounts","P-value"="pval")),
-  #               selectInput("yaxis","Plot Y variable",choices=c("Effect size"="beta","Importance score"="freqcounts","P-value"="pval")),
-   #              actionButton("plotdrugs","Plot Drugs")),
 conditionalPanel(condition="input.tabset1=='Compare Feature Across Drugs'",
                  selectInput("drugsort","Sort table by:",choices=c("Importance score"="freqcounts","Effect size"="beta","P-Value"="pval")),
                  numericInput("num_drugs","Number of drugs to show in table (max 13 for paper results, 154 for all)",value=10,min=1,max=154)
                  ),
+                ###### option to limit to paper results
                  checkboxInput("paperonly","Show only most recent results included in paper"),
-#This was never actually implemented - show results for drugs with same target
-#conditionalPanel(condition="input.tabset1=='Compare Feature Across Cancers'",
-#                 actionButton("reldrugs","See results for this gene for other related drugs")),
 
-##KEGG pathway visualization
+##KEGG pathway options
 conditionalPanel(condition="input.tabset1=='KEGG Pathway View'",
                  radioButtons("keggmethod","Choose from main KEGG cancer pathways or view a list of the most enriched pathways for this cancer and drug:",choices=c("Main Pathways"="main","Most Enriched"="calc")),
                  conditionalPanel(condition="input.keggmethod=='main'",
@@ -45,24 +43,31 @@ conditionalPanel(condition="input.tabset1=='KEGG Pathway View'",
                  conditionalPanel(condition="input.keggmethod=='calc'",
                                 uiOutput("topmapchoices")),
                  selectInput("highlight","Highlight nodes based on:",choices=c("Model effect"="beta","Importance score"="freqcounts","Frequency in TCGA population"="freqevents"))
-                 #actionButton("makepath","Make and show Pathview")
                  )),
+
+############ Main panel - outputs
 mainPanel(
 tabsetPanel(
+### Model performance tab
 tabPanel( "Model performance",
 h5("Performance metrics"),
-#textOutput("auccelllines"),
 conditionalPanel(condition="input.drug.length>0",
                  tableOutput("perf"),
                   uiOutput("perfall")),
 uiOutput("allperfplot"),
 uiOutput("cancerperfplots")),
+
+### Feature Summary tab
 tabPanel("Features Summary",
          uiOutput("featuresummary")),
+
+###Compare across cancers tab
 tabPanel("Compare Feature Across Cancers",
          uiOutput("drugname"),
          uiOutput("feat_tables")
          ),
+
+#### Compare across drugs tab
 tabPanel("Compare Feature Across Drugs",
          #conditionalPanel(condition="input.cancer.length>0",
           #                plotOutput("featDrugPlots")),
@@ -116,6 +121,8 @@ tabPanel("Compare Feature Across Drugs",
                           h5("Stomach adenocarcinoma"),
                           uiOutput("stadtables"))
          ),
+
+## KEGG pathway tab
 tabPanel("KEGG Pathway View",
          helpText("Only the first cancer selected is used to generate the pathway maps. The image file is saved as keggID.cancer_Drug.png"),
           uiOutput("pathwaymap")
